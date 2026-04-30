@@ -2092,7 +2092,7 @@ function registerInSheet() {
   // Con mode:'no-cors' no podemos leer la respuesta real igual, así que esperar
   // al .then() solo agrega latencia de red sin info útil. Si hay falla de red
   // (sin internet), el .catch igual va a actualizar el toast.
-  const catalogMode = document.getElementById('f-catalog-mode').value.trim();
+  // (catalogMode ya está declarado arriba, no lo redeclaramos.)
   const msgOK = catalogMode
     ? '✅ Envío de catálogo registrado en el Sheet'
     : '✅ Presupuesto registrado en el Sheet';

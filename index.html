@@ -121,6 +121,17 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .reminder-banner .rb-text{font-size:11px;color:var(--fg-dim);line-height:1.45}
 .reminder-banner .rb-text strong{color:var(--fg);font-family:'Organetto',sans-serif;letter-spacing:0.02em;font-weight:700;font-size:10.5px}
 @keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulseDanger{
+  0%,100%{box-shadow:0 0 0 0 rgba(224,96,58,0.55);border-color:rgba(224,96,58,0.85)}
+  50%{box-shadow:0 0 0 6px rgba(224,96,58,0);border-color:rgba(224,96,58,0.45)}
+}
+.reminder-banner.danger.pulse{
+  background:rgba(224,96,58,0.14);
+  border-width:1.5px;
+  animation:slideIn .25s ease-out, pulseDanger 1.6s ease-in-out infinite;
+}
+.reminder-banner.danger.pulse .rb-title{color:var(--danger);font-size:11px}
+.reminder-banner.danger.pulse .rb-icon{font-size:22px}
 
 /* === DISCOUNT === */
 .discount-box{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center}
@@ -578,11 +589,11 @@ input,select,textarea{font-family:inherit;font-size:14px}
         <button id="iva-off" class="active" onclick="setIvaMode(false)" style="flex:1">Sin IVA</button>
       </div>
       <div style="font-size:11px;color:var(--fg-dim);margin-top:8px;line-height:1.4" id="iva-hint">Por defecto va sin IVA. Activalo si el cliente lo requiere.</div>
-      <div id="banner-corpo-iva" class="reminder-banner warning" style="display:none;margin-top:10px">
-        <div class="rb-icon">🏢</div>
+      <div id="banner-corpo-iva" class="reminder-banner danger pulse" style="display:none;margin-top:10px">
+        <div class="rb-icon">⚠️</div>
         <div class="rb-body">
-          <div class="rb-title">¿Cliente corporativo sin IVA?</div>
-          <div class="rb-text">Cargaste empresa o tipo de evento corporativo. Si corresponde facturar A, cambialo a <strong>Con IVA</strong>.</div>
+          <div class="rb-title">Atención — IVA apagado</div>
+          <div class="rb-text">Cargaste empresa o tipo de evento corporativo. Si va <strong>Factura A</strong>, activá <strong>Con IVA</strong> antes de exportar.</div>
         </div>
       </div>
     </div>

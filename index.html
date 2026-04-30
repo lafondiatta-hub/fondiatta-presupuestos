@@ -1121,6 +1121,11 @@ let items = [];       // items agregados al presupuesto
 let discountType = 'pct';
 let discountValue = 0;
 let ivaMode = false;   // true = con IVA 21%, false = sin IVA (default)
+// Para auto-toggle del IVA cuando aparece/desaparece "cliente corporativo".
+// null = todavía no inicializado (lo seteamos en el primer paso por updateBanners).
+// Solo flipeamos IVA cuando hay TRANSICIÓN (corp ⇄ no-corp), no en cada render,
+// para no pisar overrides manuales del vendedor.
+let lastCorpState = null;
 
 // === CATÁLOGO MODES (nombres de PDFs adjuntos y labels) ===
 const catalogLabels = {
@@ -1461,12 +1466,30 @@ function updateBanners() {
     bNoLog.style.display = (isPersonalizado && !isManual && hasItems && !hasLogistica) ? '' : 'none';
   }
 
-  // Banner 3: cliente parece corporativo y está SIN IVA → recordar evaluar IVA
+  // Banner 3: cliente parece corporativo y está SIN IVA → recordar evaluar IVA.
+  // Auto-toggle: si hay TRANSICIÓN corp ⇄ no-corp, flipeamos IVA solos.
+  // Esto deja al vendedor con el IVA "correcto" por default, pero si después
+  // lo cambia manualmente, no lo seguimos pisando (la transición ya pasó).
   const bCorpoIva = document.getElementById('banner-corpo-iva');
+  const empresa = (document.getElementById('f-company') || {}).value || '';
+  const tipoEv = (document.getElementById('f-type') || {}).value || '';
+  const pareceCorporativo = empresa.trim().length > 0 || /corporativ/i.test(tipoEv);
+
+  if (lastCorpState === null) {
+    // Primer render: solo registramos el estado, no flipeamos
+    lastCorpState = pareceCorporativo;
+  } else if (lastCorpState !== pareceCorporativo) {
+    // Hubo transición: auto-toggle del IVA (Con IVA si pasó a corp, Sin IVA si dejó de serlo)
+    lastCorpState = pareceCorporativo;
+    if (ivaMode !== pareceCorporativo) {
+      setIvaMode(pareceCorporativo);
+      // setIvaMode dispara refreshTotals → renderDoc → updateBanners de nuevo,
+      // pero ya no hay transición (lastCorpState ya está actualizado), así que no hay loop.
+    }
+  }
+
+  // Banner solo si está en estado corp PERO el vendedor manualmente apagó el IVA.
   if (bCorpoIva) {
-    const empresa = (document.getElementById('f-company') || {}).value || '';
-    const tipoEv = (document.getElementById('f-type') || {}).value || '';
-    const pareceCorporativo = empresa.trim().length > 0 || /corporativ/i.test(tipoEv);
     bCorpoIva.style.display = (pareceCorporativo && !ivaMode) ? '' : 'none';
   }
 }

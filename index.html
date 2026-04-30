@@ -1122,10 +1122,10 @@ let discountType = 'pct';
 let discountValue = 0;
 let ivaMode = false;   // true = con IVA 21%, false = sin IVA (default)
 // Para auto-toggle del IVA cuando aparece/desaparece "cliente corporativo".
-// null = todavía no inicializado (lo seteamos en el primer paso por updateBanners).
+// Empieza en false (estado por defecto al cargar: sin empresa, sin tipo corp).
 // Solo flipeamos IVA cuando hay TRANSICIÓN (corp ⇄ no-corp), no en cada render,
-// para no pisar overrides manuales del vendedor.
-let lastCorpState = null;
+// para no pisar overrides manuales del vendedor entre transiciones.
+let lastCorpState = false;
 
 // === CATÁLOGO MODES (nombres de PDFs adjuntos y labels) ===
 const catalogLabels = {
@@ -1475,10 +1475,7 @@ function updateBanners() {
   const tipoEv = (document.getElementById('f-type') || {}).value || '';
   const pareceCorporativo = empresa.trim().length > 0 || /corporativ/i.test(tipoEv);
 
-  if (lastCorpState === null) {
-    // Primer render: solo registramos el estado, no flipeamos
-    lastCorpState = pareceCorporativo;
-  } else if (lastCorpState !== pareceCorporativo) {
+  if (lastCorpState !== pareceCorporativo) {
     // Hubo transición: auto-toggle del IVA (Con IVA si pasó a corp, Sin IVA si dejó de serlo)
     lastCorpState = pareceCorporativo;
     if (ivaMode !== pareceCorporativo) {

@@ -1467,27 +1467,31 @@ function updateBanners() {
   }
 
   // Banner 3: cliente parece corporativo y está SIN IVA → recordar evaluar IVA.
-  // Auto-toggle: si hay TRANSICIÓN corp ⇄ no-corp, flipeamos IVA solos.
-  // Esto deja al vendedor con el IVA "correcto" por default, pero si después
-  // lo cambia manualmente, no lo seguimos pisando (la transición ya pasó).
+  // (El auto-toggle del IVA vive aparte, en listeners directos sobre f-company/f-type
+  //  para no depender del chain renderDoc → updateBanners.)
   const bCorpoIva = document.getElementById('banner-corpo-iva');
+  if (bCorpoIva) {
+    bCorpoIva.style.display = (esCorporativoActual() && !ivaMode) ? '' : 'none';
+  }
+}
+
+// === AUTO-IVA CORPORATIVO ===
+// Devuelve true si el cliente parece corporativo (empresa cargada o tipo evento corp).
+function esCorporativoActual() {
   const empresa = (document.getElementById('f-company') || {}).value || '';
   const tipoEv = (document.getElementById('f-type') || {}).value || '';
-  const pareceCorporativo = empresa.trim().length > 0 || /corporativ/i.test(tipoEv);
+  return empresa.trim().length > 0 || /corporativ/i.test(tipoEv);
+}
 
-  if (lastCorpState !== pareceCorporativo) {
-    // Hubo transición: auto-toggle del IVA (Con IVA si pasó a corp, Sin IVA si dejó de serlo)
-    lastCorpState = pareceCorporativo;
-    if (ivaMode !== pareceCorporativo) {
-      setIvaMode(pareceCorporativo);
-      // setIvaMode dispara refreshTotals → renderDoc → updateBanners de nuevo,
-      // pero ya no hay transición (lastCorpState ya está actualizado), así que no hay loop.
+// Listener que dispara el auto-toggle del IVA solo cuando hay transición real.
+// Así un override manual del vendedor entre transiciones no se pisa.
+function checkCorpAutoIva() {
+  const isCorp = esCorporativoActual();
+  if (lastCorpState !== isCorp) {
+    lastCorpState = isCorp;
+    if (ivaMode !== isCorp) {
+      setIvaMode(isCorp);
     }
-  }
-
-  // Banner solo si está en estado corp PERO el vendedor manualmente apagó el IVA.
-  if (bCorpoIva) {
-    bCorpoIva.style.display = (pareceCorporativo && !ivaMode) ? '' : 'none';
   }
 }
 
@@ -1740,6 +1744,21 @@ document.querySelectorAll('#f-name, #f-company, #f-phone, #f-email, #f-event-nam
   el.addEventListener('input', renderDoc);
   el.addEventListener('change', renderDoc);
 });
+
+// === AUTO-IVA: listeners directos en empresa y tipo de evento ===
+// Esto vive aparte del chain renderDoc porque queremos que el flip pase
+// SIEMPRE que estos campos cambien, sin depender de nada más.
+const _fCompany = document.getElementById('f-company');
+const _fType = document.getElementById('f-type');
+if (_fCompany) {
+  _fCompany.addEventListener('input', checkCorpAutoIva);
+  _fCompany.addEventListener('change', checkCorpAutoIva);
+  _fCompany.addEventListener('blur', checkCorpAutoIva);
+}
+if (_fType) {
+  _fType.addEventListener('change', checkCorpAutoIva);
+  _fType.addEventListener('input', checkCorpAutoIva);
+}
 
 // Cuando cambia el modo de precio: re-renderizar también la lista de items
 // (para mostrar/ocultar precio, qty, subtotal en el panel izquierdo)

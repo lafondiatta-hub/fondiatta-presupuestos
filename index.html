@@ -241,6 +241,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
   margin-left:auto;
   width:320px;
   padding-top:18px;
+  page-break-after:always;
 }
 .doc-totals .t-row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:var(--fg-dim)}
 .doc-totals .t-row.discount{color:var(--success)}
@@ -254,20 +255,21 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .doc-totals .t-total .lbl{font-family:'Organetto',sans-serif;font-weight:700;font-size:14px;letter-spacing:0.15em;text-transform:uppercase}
 .doc-totals .t-total .val{font-family:'Organetto',sans-serif;font-weight:700;font-size:26px;font-variant-numeric:tabular-nums}
 .doc-totals .t-total .val em{font-family:'Perfectly',serif;font-style:italic;font-weight:400;font-size:14px;color:var(--fg-dim);margin-left:6px;letter-spacing:0}
-.doc-totals .t-perperson{
+.t-perperson{
+  width:320px;margin-left:auto;
   display:flex;justify-content:space-between;align-items:baseline;
-  margin-top:10px;padding:10px 14px;
+  margin-top:0;padding:10px 14px;
   background:rgba(244,239,230,0.04);border:1px solid var(--border);
   border-radius:4px;
+  page-break-inside:avoid;
 }
-.doc-totals .t-perperson .pp-lbl{font-family:'Organetto',sans-serif;font-weight:700;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--fg-dim);display:flex;flex-direction:column;gap:2px}
-.doc-totals .t-perperson .pp-lbl small{font-family:'Perfectly',serif;font-style:italic;font-weight:400;font-size:10px;letter-spacing:0;text-transform:none;color:var(--fg-dim);opacity:0.75}
-.doc-totals .t-perperson .pp-val{font-family:'Organetto',sans-serif;font-weight:700;font-size:15px;color:var(--fg);font-variant-numeric:tabular-nums}
+.t-perperson .pp-lbl{font-family:'Organetto',sans-serif;font-weight:700;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--fg-dim);display:flex;flex-direction:column;gap:2px}
+.t-perperson .pp-lbl small{font-family:'Perfectly',serif;font-style:italic;font-weight:400;font-size:10px;letter-spacing:0;text-transform:none;color:var(--fg-dim);opacity:0.75}
+.t-perperson .pp-val{font-family:'Organetto',sans-serif;font-weight:700;font-size:15px;color:var(--fg);font-variant-numeric:tabular-nums}
 
 /* === CONDICIONES (PAGE 2) === */
 .conditions{
   margin-top:50px;
-  page-break-before:always;
   padding-top:40px;
   border-top:1px solid var(--border);
 }
@@ -572,10 +574,17 @@ input,select,textarea{font-family:inherit;font-size:14px}
     <div class="section">
       <h2>IVA</h2>
       <div class="disc-toggle" style="width:100%">
-        <button id="iva-on" class="active" onclick="setIvaMode(true)" style="flex:1">Con IVA (+21%)</button>
-        <button id="iva-off" onclick="setIvaMode(false)" style="flex:1">Sin IVA</button>
+        <button id="iva-on" onclick="setIvaMode(true)" style="flex:1">Con IVA (+21%)</button>
+        <button id="iva-off" class="active" onclick="setIvaMode(false)" style="flex:1">Sin IVA</button>
       </div>
-      <div style="font-size:11px;color:var(--fg-dim);margin-top:8px;line-height:1.4" id="iva-hint">Los precios se muestran con IVA sumado aparte al final.</div>
+      <div style="font-size:11px;color:var(--fg-dim);margin-top:8px;line-height:1.4" id="iva-hint">Por defecto va sin IVA. Activalo si el cliente lo requiere.</div>
+      <div id="banner-corpo-iva" class="reminder-banner warning" style="display:none;margin-top:10px">
+        <div class="rb-icon">🏢</div>
+        <div class="rb-body">
+          <div class="rb-title">¿Cliente corporativo sin IVA?</div>
+          <div class="rb-text">Cargaste empresa o tipo de evento corporativo. Si corresponde facturar A, cambialo a <strong>Con IVA</strong>.</div>
+        </div>
+      </div>
     </div>
 
     <!-- TOTALES MINI -->
@@ -648,10 +657,11 @@ input,select,textarea{font-family:inherit;font-size:14px}
             <span class="lbl">Total</span>
             <span class="val" id="d-total">$ 0 <em>ARS</em></span>
           </div>
-          <div class="t-perperson" id="d-perperson-row" style="display:none">
-            <span class="pp-lbl">Valor por persona<small>Incluye servicio, logística y viáticos</small></span>
-            <span class="pp-val" id="d-perperson">$ 0</span>
-          </div>
+        </div>
+
+        <div class="t-perperson" id="d-perperson-row" style="display:none">
+          <span class="pp-lbl">Valor por persona<small>Incluye servicio, logística y viáticos</small></span>
+          <span class="pp-val" id="d-perperson">$ 0</span>
         </div>
 
         <!-- CONDICIONES GENERALES (page 2) -->
@@ -676,7 +686,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
             </div>
             <div class="cond-item">
               <div class="cond-title">Seguro</div>
-              <div class="cond-body">En caso de que la locación requiera seguro de responsabilidad civil, se cotiza aparte según cantidad de invitados y características del evento. Consultar al vendedor para detalles.</div>
+              <div class="cond-body">Si la locación exige seguro, se cotiza aparte según cantidad de invitados y características del evento. El cliente debe especificar las cláusulas requeridas para emitir la póliza.</div>
             </div>
             <div class="cond-item" style="grid-column:1/-1">
               <div class="cond-title">Logística y viáticos</div>
@@ -1099,7 +1109,7 @@ const CATALOG = [
 let items = [];       // items agregados al presupuesto
 let discountType = 'pct';
 let discountValue = 0;
-let ivaMode = true;   // true = con IVA 21%, false = sin IVA
+let ivaMode = false;   // true = con IVA 21%, false = sin IVA (default)
 
 // === CATÁLOGO MODES (nombres de PDFs adjuntos y labels) ===
 const catalogLabels = {
@@ -1218,7 +1228,7 @@ function clasificarTipoServicio(cat, name) {
 function addItem(it) {
   const tipoServicio = it.tipoServicio || clasificarTipoServicio(it.cat, it.name);
   items.push({ ...it, tipoServicio, id: Date.now() + Math.random() });
-  renderItems(); renderDoc();
+  renderItems(); refreshTotals();
 }
 function addCustomItem() {
   items.push({
@@ -1227,11 +1237,11 @@ function addCustomItem() {
     price: 0, qty: 1, unit: 'unidad', desc: '', cat: 'Custom', custom: true,
     tipoServicio: 'Otro'
   });
-  renderItems(); renderDoc();
+  renderItems(); refreshTotals();
 }
 function removeItem(id) {
   items = items.filter(i => i.id !== id);
-  renderItems(); renderDoc();
+  renderItems(); refreshTotals();
 }
 function updateItem(id, field, val) {
   const it = items.find(i => i.id === id);
@@ -1438,6 +1448,15 @@ function updateBanners() {
   // Banner 2: HAY ítems pero NO hay logística (NO aplica en manual)
   if (bNoLog) {
     bNoLog.style.display = (isPersonalizado && !isManual && hasItems && !hasLogistica) ? '' : 'none';
+  }
+
+  // Banner 3: cliente parece corporativo y está SIN IVA → recordar evaluar IVA
+  const bCorpoIva = document.getElementById('banner-corpo-iva');
+  if (bCorpoIva) {
+    const empresa = (document.getElementById('f-company') || {}).value || '';
+    const tipoEv = (document.getElementById('f-type') || {}).value || '';
+    const pareceCorporativo = empresa.trim().length > 0 || /corporativ/i.test(tipoEv);
+    bCorpoIva.style.display = (pareceCorporativo && !ivaMode) ? '' : 'none';
   }
 }
 
@@ -1766,6 +1785,7 @@ function validarAntesDeEnviar() {
 // Se ejecuta al apretar Exportar PDF / Solo registrar / Registrar envío
 function generarNombreAuto() {
   const nombreEl = document.getElementById('f-event-name');
+  const clienteEl = document.getElementById('f-name');
   const paxEl = document.getElementById('f-pax');
   const fechaEvEl = document.getElementById('f-event-date');
 
@@ -1776,30 +1796,32 @@ function generarNombreAuto() {
   const yy = String(hoy.getFullYear()).slice(-2);
   const fechaHoy = `${dd}.${mm}.${yy}`;
 
-  // Nombre del evento actual (si está vacío, usamos "Sin nombre")
-  const nombrePrevio = (nombreEl.value || '').trim() || 'Sin nombre';
+  // Nombre del cliente (si está vacío, usamos "Sin cliente")
+  const cliente = (clienteEl && clienteEl.value || '').trim() || 'Sin cliente';
 
   // Pax
   const pax = (paxEl.value || '').trim();
   const paxTxt = pax ? `${pax} pax` : 'sin pax';
 
-  // Fecha del evento en formato DD/MM/YYYY
+  // Fecha del evento en formato "DD mmm" (ej: "28 may")
+  const mesesCortos = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
   let fechaEventoTxt = 'fecha a confirmar';
   if (fechaEvEl.value) {
     const d = new Date(fechaEvEl.value + 'T12:00:00');
     const dd2 = String(d.getDate()).padStart(2, '0');
-    const mm2 = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = d.getFullYear();
-    fechaEventoTxt = `${dd2}/${mm2}/${yyyy}`;
+    const mesCorto = mesesCortos[d.getMonth()];
+    fechaEventoTxt = `${dd2} ${mesCorto}`;
   }
 
   // Evitamos duplicar si el nombre ya arranca con la fecha de hoy
-  // (Si el vendedor aprieta 2 veces, no queda "20.04.26 - 20.04.26 - ..." )
-  if (nombrePrevio.startsWith(fechaHoy)) {
+  // (Si el vendedor aprieta 2 veces, no queda "30.04.26 30.04.26 ..." )
+  const yaFormateado = (nombreEl.value || '').trim().startsWith(fechaHoy);
+  if (yaFormateado) {
     return; // ya está formateado, no tocar
   }
 
-  const nombreFinal = `${fechaHoy} - ${nombrePrevio} - ${paxTxt} - ${fechaEventoTxt}`;
+  // Formato: "30.04.26 Presupuesto Carolina Lan Duncan - 28 may - 38 pax"
+  const nombreFinal = `${fechaHoy} Presupuesto ${cliente} - ${fechaEventoTxt} - ${paxTxt}`;
   nombreEl.value = nombreFinal;
 
   // Re-render del PDF preview para que se vea el cambio en vivo
@@ -1823,13 +1845,19 @@ function handlePrimaryAction() {
 function exportPDF() {
   if (!validarAntesDeEnviar()) return;
 
-  // Auto-completar nombre del evento con formato "DD.MM.YY - Nombre - XX pax - fecha"
+  // Auto-completar nombre del evento con el formato configurado
   generarNombreAuto();
 
-  const vendor = document.getElementById('f-vendor').value.trim();
-  const name = (document.getElementById('f-name').value.trim() || 'cliente').replace(/[^a-z0-9áéíóúñ ]/gi,'').replace(/\s+/g,'_');
-  const today = new Date().toISOString().slice(0,10);
-  const filename = `Presupuesto_LaFondiatta_${vendor}_${name}_${today}.pdf`;
+  // Filename = nombre del evento auto-generado (ya tiene fecha, cliente, pax).
+  // Limpiamos caracteres conflictivos para sistemas de archivos pero conservamos . - espacios.
+  const evNameRaw = document.getElementById('f-event-name').value.trim();
+  const fallbackName = 'Presupuesto LaFondiatta';
+  const baseName = (evNameRaw || fallbackName)
+    .replace(/[\\/:*?"<>|]/g, '')   // chars prohibidos en filesystem
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);                  // hard cap por si quedan presupuestos eternos
+  const filename = baseName.toLowerCase().endsWith('.pdf') ? baseName : `${baseName}.pdf`;
   const el = document.getElementById('doc');
 
   const opts = {
@@ -1838,7 +1866,7 @@ function exportPDF() {
     image: { type: 'jpeg', quality: 0.96 },
     html2canvas: { scale: 2, backgroundColor: '#0a0a0a', useCORS: true, letterRendering: true },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['css', 'legacy', 'avoid-all'], avoid: ['.doc-item', '.cond-item', '.totals-wrap', '.doc-totals'] }
+    pagebreak: { mode: ['css', 'legacy', 'avoid-all'], avoid: ['.doc-item', '.cond-item', '.totals-wrap', '.doc-totals', '.t-perperson'] }
   };
 
   html2pdf().set(opts).from(el).save();
@@ -2010,20 +2038,22 @@ function registerInSheet() {
   const formData = new FormData();
   formData.append('payload', JSON.stringify(payload));
 
+  // Toast OPTIMISTA: mostramos confirmación apenas se dispara el request.
+  // Con mode:'no-cors' no podemos leer la respuesta real igual, así que esperar
+  // al .then() solo agrega latencia de red sin info útil. Si hay falla de red
+  // (sin internet), el .catch igual va a actualizar el toast.
+  const catalogMode = document.getElementById('f-catalog-mode').value.trim();
+  const msgOK = catalogMode
+    ? '✅ Envío de catálogo registrado en el Sheet'
+    : '✅ Presupuesto registrado en el Sheet';
+  showSheetToast(msgOK);
+
   fetch(APPS_SCRIPT_URL, {
     method: 'POST',
     mode: 'no-cors',
     body: JSON.stringify(payload),
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }
   })
-    .then(() => {
-      // Toast contextual: si es envío de catálogo, mensaje distinto
-      const catalogMode = document.getElementById('f-catalog-mode').value.trim();
-      const msg = catalogMode
-        ? '✅ Envío de catálogo registrado en el Sheet'
-        : '✅ Presupuesto registrado en el Sheet';
-      showSheetToast(msg);
-    })
     .catch(err => {
       console.error(err);
       showSheetToast('⚠️ No se pudo registrar en el Sheet. Revisá la conexión.', true);

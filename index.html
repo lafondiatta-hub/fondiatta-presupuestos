@@ -265,7 +265,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 }
 .doc-totals .t-total .lbl{font-family:'Organetto',sans-serif;font-weight:700;font-size:14px;letter-spacing:0.15em;text-transform:uppercase}
 .doc-totals .t-total .val{font-family:'Organetto',sans-serif;font-weight:700;font-size:26px;font-variant-numeric:tabular-nums}
-.doc-totals .t-total .val em{font-family:'Perfectly',serif;font-style:italic;font-weight:400;font-size:14px;color:var(--fg-dim);margin-left:6px;letter-spacing:0}
+.doc-totals .t-total .val em{font-family:'Perfectly',serif;font-style:italic;font-weight:400;font-size:14px;color:var(--fg-dim);margin-left:6px;letter-spacing:0;white-space:nowrap}
 .t-perperson{
   width:320px;margin-left:auto;
   display:flex;justify-content:space-between;align-items:baseline;
@@ -1687,7 +1687,7 @@ function renderDoc() {
   }
 
   // Total con etiqueta correcta según IVA mode
-  const totalCaption = ivaMode ? 'ARS · IVA incluido' : 'ARS · Sin IVA';
+  const totalCaption = ivaMode ? 'ARS · c/IVA' : 'ARS · s/IVA';
   document.getElementById('d-total').innerHTML = fmt(t.total) + ` <em>${totalCaption}</em>`;
 
   // Valor por persona

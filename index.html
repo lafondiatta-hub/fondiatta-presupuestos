@@ -53,6 +53,27 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .sidebar header img{width:32px;height:32px;object-fit:contain}
 .sidebar header h1{font-family:'Organetto',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.12em;text-transform:uppercase}
 .sidebar header small{display:block;color:var(--fg-dim);font-size:10px;letter-spacing:0.1em;margin-top:2px;text-transform:uppercase}
+.sidebar header .btn-reset-top{
+  margin-left:auto;
+  background:transparent;
+  color:var(--fg-dim);
+  border:1px solid var(--border);
+  padding:7px 12px;
+  border-radius:4px;
+  font-family:'Organetto',sans-serif;
+  font-size:9px;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  font-weight:700;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:all .15s ease;
+}
+.sidebar header .btn-reset-top:hover{
+  color:var(--fg);
+  border-color:var(--fg-dim);
+  background:rgba(244,239,230,0.05);
+}
 
 .section{margin-bottom:28px}
 .section h2{font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--fg);margin-bottom:12px;display:flex;align-items:center;gap:8px}
@@ -383,6 +404,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
         <h1>Generador de Presupuestos</h1>
         <small>La Fondiatta · Abril 2026</small>
       </div>
+      <button class="btn-reset-top" onclick="resetAll()" title="Borra todos los datos y crea un presupuesto nuevo">↺ Empezar de cero</button>
     </header>
 
     <!-- SESSION BADGE: aparece cuando hay un presupuesto ya registrado en este device.
@@ -637,7 +659,6 @@ input,select,textarea{font-family:inherit;font-size:14px}
     <div class="actions">
       <button class="btn" id="btn-primary" onclick="handlePrimaryAction()">Exportar PDF</button>
       <button class="btn secondary" id="btn-solo-registrar" onclick="soloRegistrar()" title="Solo registra el envío en el Sheet, sin descargar PDF">Solo registrar</button>
-      <button class="btn secondary" onclick="resetAll()">Empezar de cero</button>
     </div>
   </aside>
 

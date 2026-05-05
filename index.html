@@ -121,6 +121,19 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .reminder-banner .rb-text{font-size:11px;color:var(--fg-dim);line-height:1.45}
 .reminder-banner .rb-text strong{color:var(--fg);font-family:'Organetto',sans-serif;letter-spacing:0.02em;font-weight:700;font-size:10.5px}
 @keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+/* === SESSION BADGE (deduplicación de revisiones) === */
+.session-badge{
+  display:grid;grid-template-columns:32px 1fr;gap:10px;
+  padding:10px 12px;border-radius:4px;margin:0 0 14px 0;
+  background:rgba(139,184,139,0.08);
+  border:1px solid rgba(139,184,139,0.45);
+  animation:slideIn .25s ease-out;
+}
+.session-badge .sb-icon{font-size:18px;line-height:1.2;padding-top:1px;text-align:center}
+.session-badge .sb-title{font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:3px}
+.session-badge .sb-text{font-size:11px;color:var(--fg-dim);line-height:1.45}
+.session-badge .sb-text strong{color:var(--fg);font-family:'Organetto',sans-serif;letter-spacing:0.02em;font-weight:700;font-size:10.5px}
+.session-badge .sb-id{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--fg-dim);margin-top:4px;opacity:0.7}
 @keyframes pulseDanger{
   0%,100%{box-shadow:0 0 0 0 rgba(224,96,58,0.55);border-color:rgba(224,96,58,0.85)}
   50%{box-shadow:0 0 0 6px rgba(224,96,58,0);border-color:rgba(224,96,58,0.45)}
@@ -371,6 +384,17 @@ input,select,textarea{font-family:inherit;font-size:14px}
         <small>La Fondiatta · Abril 2026</small>
       </div>
     </header>
+
+    <!-- SESSION BADGE: aparece cuando hay un presupuesto ya registrado en este device.
+         El próximo export ACTUALIZA en lugar de crear nuevo registro. -->
+    <div id="session-badge" class="session-badge" style="display:none">
+      <div class="sb-icon">📝</div>
+      <div class="sb-body">
+        <div class="sb-title">Modificando presupuesto previo</div>
+        <div class="sb-text">El próximo export va a <strong>ACTUALIZAR</strong> el registro anterior, no crear uno nuevo. Si esto es un presupuesto distinto, apretá <strong>Empezar de cero</strong> antes.</div>
+        <div class="sb-id" id="sb-id"></div>
+      </div>
+    </div>
 
     <!-- CLIENTE -->
     <div class="section">
@@ -1126,6 +1150,55 @@ let ivaMode = false;   // true = con IVA 21%, false = sin IVA (default)
 // Solo flipeamos IVA cuando hay TRANSICIÓN (corp ⇄ no-corp), no en cada render,
 // para no pisar overrides manuales del vendedor entre transiciones.
 let lastCorpState = false;
+
+// === SESSION TRACKING — dedup de revisiones de presupuestos ===
+// El UUID se genera al primer export y se persiste en localStorage.
+// Mientras el vendedor no apriete "Empezar de cero", todo re-export va con
+// el mismo UUID → Apps Script ACTUALIZA la fila en lugar de crear una nueva.
+const PRESU_ID_KEY = 'lf_presu_id_v1';
+const PRESU_EXPORTED_KEY = 'lf_presu_exported_v1';
+
+function getOrCreatePresupuestoId() {
+  let id = '';
+  try { id = localStorage.getItem(PRESU_ID_KEY) || ''; } catch(e) {}
+  if (!id) {
+    id = 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+    try { localStorage.setItem(PRESU_ID_KEY, id); } catch(e) {}
+  }
+  return id;
+}
+
+function markPresupuestoExported() {
+  try { localStorage.setItem(PRESU_EXPORTED_KEY, '1'); } catch(e) {}
+  updateSessionBadge();
+}
+
+function clearPresupuestoSession() {
+  try {
+    localStorage.removeItem(PRESU_ID_KEY);
+    localStorage.removeItem(PRESU_EXPORTED_KEY);
+  } catch(e) {}
+  updateSessionBadge();
+}
+
+function isPresupuestoAlreadyExported() {
+  try { return localStorage.getItem(PRESU_EXPORTED_KEY) === '1'; }
+  catch(e) { return false; }
+}
+
+function updateSessionBadge() {
+  const badge = document.getElementById('session-badge');
+  if (!badge) return;
+  if (isPresupuestoAlreadyExported()) {
+    badge.style.display = '';
+    const idEl = document.getElementById('sb-id');
+    if (idEl) {
+      try { idEl.textContent = 'ID interno: ' + (localStorage.getItem(PRESU_ID_KEY) || ''); } catch(e) {}
+    }
+  } else {
+    badge.style.display = 'none';
+  }
+}
 
 // === CATÁLOGO MODES (nombres de PDFs adjuntos y labels) ===
 const catalogLabels = {
@@ -2081,7 +2154,10 @@ function registerInSheet() {
     locacion: document.getElementById('f-address').value.trim(),
     detalle: detalleFinal,
     canal: document.getElementById('f-channel').value.trim(),
-    observaciones: observaciones
+    observaciones: observaciones,
+    // ID interno persistente: si llega y matchea una fila existente, Apps Script ACTUALIZA esa fila.
+    // Si no matchea (o el Apps Script todavía no soporta esta lógica), inserta normal.
+    presupuestoId: getOrCreatePresupuestoId()
   };
 
   // No-cors porque Apps Script devuelve CORS según config; usamos form-encoded
@@ -2093,10 +2169,13 @@ function registerInSheet() {
   // al .then() solo agrega latencia de red sin info útil. Si hay falla de red
   // (sin internet), el .catch igual va a actualizar el toast.
   // (catalogMode ya está declarado arriba, no lo redeclaramos.)
+  const yaExportado = isPresupuestoAlreadyExported();
   const msgOK = catalogMode
     ? '✅ Envío de catálogo registrado en el Sheet'
-    : '✅ Presupuesto registrado en el Sheet';
+    : (yaExportado ? '✅ Presupuesto actualizado en el Sheet' : '✅ Presupuesto registrado en el Sheet');
   showSheetToast(msgOK);
+  // Marca la sesión como exportada (próximo export va a ser update)
+  markPresupuestoExported();
 
   fetch(APPS_SCRIPT_URL, {
     method: 'POST',
@@ -2119,11 +2198,13 @@ function showSheetToast(msg, isError) {
 }
 
 function resetAll() {
-  if (!confirm('¿Borrar todos los datos y empezar de cero?')) return;
+  if (!confirm('¿Borrar todos los datos y empezar de cero?\n\nEsto crea un presupuesto nuevo (no actualiza el anterior).')) return;
   items = []; discountValue = 0;
   ['f-name','f-company','f-phone','f-email','f-event-name','f-address','f-event-date','f-type','f-pax','f-discount','f-disc-reason','f-vendor','f-channel','f-catalog-mode'].forEach(id => {
     document.getElementById(id).value = '';
   });
+  // Limpia el ID interno → próximo export crea registro nuevo en el Sheet
+  clearPresupuestoSession();
   renderItems(); refreshTotals();
 }
 
@@ -2142,6 +2223,8 @@ document.addEventListener('keydown', e => {
 // Initial render
 renderDoc();
 refreshTotals();
+// Mostrar el badge de sesión si hay un presupuesto previo en localStorage
+updateSessionBadge();
 </script>
 </body>
 </html>

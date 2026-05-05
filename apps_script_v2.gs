@@ -1,13 +1,18 @@
 // ============================================================
 // La Fondiatta — Receptor de Presupuestos desde el Generador
-// v2.1 — UPDATE support + lectura batch (perf)
+// v3.0 — UPDATE + listado para restore + items JSON en columna W
 // ============================================================
 //
-// v2.1: Fix de performance. El loop original hacía 1 getValue() por fila
-// (965 round-trips ≈ 50s con el Sheet actual). Ahora lee column A en batch
-// junto con column K → 2 llamadas vs N. Tiempo total: ~1s.
+// REQUISITOS DEL SHEET:
+//   Columna V "Internal ID"   (UUID interno, agregar manual)
+//   Columna W "Items JSON"    (ítems serializados, agregar manual)
 //
-// REQUISITO: El Sheet debe tener una columna V con header "Internal ID".
+// Cambios v3.0 vs v2.1:
+// - doPost ahora guarda itemsJson (payload.itemsJson) en columna W.
+// - doGet?action=list devuelve los últimos N presupuestos con todos los
+//   campos necesarios para repopular el formulario (incluye items).
+// - doGet?action=list&vendedor=Colo filtra por vendedor.
+// - doGet sin action sigue siendo health check.
 // ============================================================
 
 function doPost(e) {
@@ -24,7 +29,8 @@ function doPost(e) {
     var lastRow = sh.getLastRow();
 
     var ID_PRES_COL = 11;     // K = ID Presupuesto (P-2026-XXX)
-    var INTERNAL_ID_COL = 22; // V = Internal ID (UUID interno)
+    var INTERNAL_ID_COL = 22; // V = Internal ID (UUID)
+    var ITEMS_JSON_COL = 23;  // W = Items JSON
 
     // === DEDUP: si llega presupuestoId y matchea, ACTUALIZAR ===
     var targetRow = null;
@@ -44,7 +50,6 @@ function doPost(e) {
     // === Si no fue UPDATE: buscar fila pre-generada vacía o appender ===
     if (!targetRow) {
       var rangeRows = Math.max(lastRow - 1, 1);
-      // Lectura BATCH de columnas K (IDs) y A (contactos) — evita N round-trips
       var idsValues = sh.getRange(2, ID_PRES_COL, rangeRows, 1).getValues();
       var contactosValues = sh.getRange(2, 1, rangeRows, 1).getValues();
 
@@ -69,12 +74,10 @@ function doPost(e) {
 
     var hoy = Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'dd/MM/yyyy');
 
-    // En UPDATE preservamos G (Fecha Envío original)
     var fechaEnvioFinal = isUpdate
       ? sh.getRange(targetRow, 7).getValue()
       : (data.fechaEnvio || hoy);
 
-    // A-J (1-10)
     sh.getRange(targetRow, 1, 1, 10).setValues([[
       data.contacto || '',
       data.empresa || '',
@@ -88,7 +91,6 @@ function doPost(e) {
       data.mes || ''
     ]]);
 
-    // L-Q (12-17)
     sh.getRange(targetRow, 12, 1, 6).setValues([[
       data.telefono || '',
       data.email || '',
@@ -98,17 +100,20 @@ function doPost(e) {
       data.canal || ''
     ]]);
 
-    // R-T (18-20) — solo en INSERT, en UPDATE preservamos lo manual
     if (!isUpdate) {
       sh.getRange(targetRow, 18, 1, 3).setValues([['', '', '']]);
     }
 
-    // U Observaciones (21)
     sh.getRange(targetRow, 21).setValue(data.observaciones || '');
 
-    // V Internal ID (22) — siempre se escribe, permite identificar futuras revisiones
+    // V — Internal ID
     if (data.presupuestoId) {
       sh.getRange(targetRow, INTERNAL_ID_COL).setValue(data.presupuestoId);
+    }
+
+    // W — Items JSON (para poder restaurar el presupuesto)
+    if (data.itemsJson) {
+      sh.getRange(targetRow, ITEMS_JSON_COL).setValue(data.itemsJson);
     }
 
     return ContentService
@@ -122,13 +127,93 @@ function doPost(e) {
   }
 }
 
+// ============================================================
+// doGet — health check + listado de presupuestos para restore
+// ============================================================
 function doGet(e) {
+  try {
+    var action = (e && e.parameter && e.parameter.action) || '';
+    if (action === 'list') {
+      return listPresupuestos(e);
+    }
+    return ContentService
+      .createTextOutput(JSON.stringify({ok: true, msg: 'La Fondiatta Apps Script online v3.0'}))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ok: false, error: err.toString()}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function listPresupuestos(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheets()[0];
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ok: true, items: []}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var vendedorFiltro = ((e.parameter.vendedor || '').trim()).toLowerCase();
+  var limit = parseInt(e.parameter.limit, 10) || 50;
+
+  // Lectura BATCH de las 23 columnas (A-W)
+  var data = sh.getRange(2, 1, lastRow - 1, 23).getValues();
+
+  var items = [];
+  // Iteramos de la última fila hacia atrás (más recientes primero)
+  for (var i = data.length - 1; i >= 0 && items.length < limit; i--) {
+    var row = data[i];
+    var internalId = row[21];   // V
+    if (!internalId) continue;  // sin internal ID no se puede restaurar
+
+    var vendedorRow = String(row[4] || '');
+    if (vendedorFiltro && vendedorRow.toLowerCase() !== vendedorFiltro) continue;
+
+    var itemsJson = row[22];    // W
+    var itemsParsed = null;
+    if (itemsJson) {
+      try { itemsParsed = JSON.parse(itemsJson); } catch (err) { itemsParsed = null; }
+    }
+
+    items.push({
+      internalId: internalId,
+      idPresupuesto: row[10],   // K
+      contacto: row[0],         // A
+      empresa: row[1],          // B
+      pax: row[2],              // C
+      estado: row[3],           // D
+      vendedor: vendedorRow,    // E
+      tipoEvento: row[5],       // F
+      fechaEnvio: formatDate(row[6]),    // G
+      fechaEvento: formatDate(row[7]),   // H
+      mes: row[9],              // J
+      telefono: row[11],        // L
+      email: row[12],           // M
+      nombreEvento: row[13],    // N
+      locacion: row[14],        // O
+      canal: row[16],           // Q
+      observaciones: row[20],   // U
+      items: itemsParsed
+    });
+  }
+
   return ContentService
-    .createTextOutput(JSON.stringify({ok: true, msg: 'La Fondiatta Apps Script online v2.1'}))
+    .createTextOutput(JSON.stringify({ok: true, items: items}))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// === TEST DEBUG (no toca el Sheet, solo verifica acceso) ===
+function formatDate(v) {
+  if (!v) return '';
+  if (v instanceof Date) {
+    return Utilities.formatDate(v, 'America/Argentina/Buenos_Aires', 'dd/MM/yyyy');
+  }
+  return String(v);
+}
+
+// === TEST DEBUG ===
 function test() {
   Logger.log('1. Empezó');
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -138,7 +223,7 @@ function test() {
   Logger.log('4. Fin');
 }
 
-// === TEST POST (prueba doPost de verdad — INSERT/UPDATE) ===
+// === TEST POST ===
 function testPost() {
   var fakePayload = {
     postData: {
@@ -157,7 +242,10 @@ function testPost() {
         canal: 'Vendedor',
         mes: 'mayo 26',
         observaciones: 'TOTAL c/IVA: $1.500.000',
-        presupuestoId: 'p_test_123'
+        presupuestoId: 'p_test_123',
+        itemsJson: JSON.stringify([
+          {cat:'Corpo · Desayunos', name:'Desayuno Premium', price:25500, qty:50, unit:'persona', desc:'', custom:false, tipoServicio:'Entrada'}
+        ])
       })
     }
   };
@@ -167,30 +255,27 @@ function testPost() {
   Logger.log(result.getContent());
 }
 
+// === TEST LIST ===
+function testList() {
+  var fakeEvent = { parameter: { action: 'list', limit: 5 } };
+  var t0 = Date.now();
+  var result = doGet(fakeEvent);
+  Logger.log('Tiempo: ' + (Date.now() - t0) + 'ms');
+  Logger.log(result.getContent());
+}
+
 // ============================================================
-// SETUP DEL SHEET — look & feel La Fondiatta
-// ============================================================
-// Función para correr UNA SOLA VEZ desde el editor.
-// Aplica:
-//  - Header negro con texto crema (estilo fondiattero)
-//  - Dropdowns en Estado (D), Vendedor (E), Tipo de Evento (F)
-//  - Date pickers en G, H, I (las 3 columnas de fecha)
-//  - Conditional formatting en Estado: verde/amarillo/azul/gris/rojo
-//  - Columna V (Internal ID) discreta: gris monospace, ancho 120px
-//  - Freeze de la fila 1 y de las 2 primeras columnas
-//  - Filas alternadas (banding) crema
-//
-// Es IDEMPOTENTE: se puede correr varias veces sin romper nada.
+// SETUP DEL SHEET — look & feel La Fondiatta (one-shot)
 // ============================================================
 function setupSheetFormat() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheets()[0];
   var lastRow = Math.max(sh.getLastRow(), 2);
-  var lastCol = 22;
+  var lastCol = 23;
 
-  Logger.log('Empezando setup — ' + lastRow + ' filas, ' + lastCol + ' columnas');
+  Logger.log('Empezando setup — ' + lastRow + ' filas');
 
-  // === 1. HEADER ROW — fondiattero ===
+  // 1. HEADER
   var headerRange = sh.getRange(1, 1, 1, lastCol);
   headerRange
     .setBackground('#0a0a0a')
@@ -201,26 +286,18 @@ function setupSheetFormat() {
     .setHorizontalAlignment('left')
     .setVerticalAlignment('middle');
   sh.setRowHeight(1, 36);
-  Logger.log('1. Header listo');
 
-  // === 2. DROPDOWNS ===
-  // D — Estado
+  // 2. DROPDOWNS
   var estados = ['Pendiente de Enviar', 'En Seguimiento', 'Avanzado', 'Confirmado', 'Perdido'];
-  var ruleEstado = SpreadsheetApp.newDataValidation()
-    .requireValueInList(estados, true)
-    .setAllowInvalid(true)
-    .build();
-  sh.getRange(2, 4, lastRow - 1, 1).setDataValidation(ruleEstado);
+  sh.getRange(2, 4, lastRow - 1, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(estados, true).setAllowInvalid(true).build()
+  );
 
-  // E — Vendedor
   var vendedores = ['JP', 'Colo', 'Ako', 'Camba', 'Chino', 'Zenon', 'Nahue'];
-  var ruleVendedor = SpreadsheetApp.newDataValidation()
-    .requireValueInList(vendedores, true)
-    .setAllowInvalid(true)
-    .build();
-  sh.getRange(2, 5, lastRow - 1, 1).setDataValidation(ruleVendedor);
+  sh.getRange(2, 5, lastRow - 1, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(vendedores, true).setAllowInvalid(true).build()
+  );
 
-  // F — Tipo de Evento
   var tiposEvento = [
     'Desayuno Corporativo', 'Almuerzo Corporativo', 'Merienda Corporativa',
     'After Corporativo', 'Cena Corporativa', 'Desayuno + Almuerzo Corporativo',
@@ -228,105 +305,64 @@ function setupSheetFormat() {
     'Evento Social', 'Catering', 'Propuesta General',
     'Entrega Corporativa', 'Entrega Particular'
   ];
-  var ruleTipo = SpreadsheetApp.newDataValidation()
-    .requireValueInList(tiposEvento, true)
-    .setAllowInvalid(true)
-    .build();
-  sh.getRange(2, 6, lastRow - 1, 1).setDataValidation(ruleTipo);
+  sh.getRange(2, 6, lastRow - 1, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(tiposEvento, true).setAllowInvalid(true).build()
+  );
 
-  // G, H, I — Date pickers (Fecha Envío, Fecha Evento, Fecha Último Contacto)
-  var ruleFecha = SpreadsheetApp.newDataValidation()
-    .requireDate()
-    .setAllowInvalid(true)
-    .build();
+  var ruleFecha = SpreadsheetApp.newDataValidation().requireDate().setAllowInvalid(true).build();
   sh.getRange(2, 7, lastRow - 1, 3).setDataValidation(ruleFecha);
 
-  Logger.log('2. Dropdowns y date pickers listos');
-
-  // === 3. CONDITIONAL FORMATTING en Estado (D) ===
+  // 3. CONDITIONAL FORMATTING en Estado
   var coloresEstado = [
-    { state: 'Confirmado',         bg: '#d4edda', fg: '#155724' }, // verde
-    { state: 'Avanzado',           bg: '#fff3cd', fg: '#856404' }, // amarillo
-    { state: 'En Seguimiento',     bg: '#cce5ff', fg: '#004085' }, // azul
-    { state: 'Pendiente de Enviar',bg: '#e2e3e5', fg: '#383d41' }, // gris
-    { state: 'Perdido',            bg: '#f8d7da', fg: '#721c24' }  // rojo
+    { state: 'Confirmado',         bg: '#d4edda', fg: '#155724' },
+    { state: 'Avanzado',           bg: '#fff3cd', fg: '#856404' },
+    { state: 'En Seguimiento',     bg: '#cce5ff', fg: '#004085' },
+    { state: 'Pendiente de Enviar',bg: '#e2e3e5', fg: '#383d41' },
+    { state: 'Perdido',            bg: '#f8d7da', fg: '#721c24' }
   ];
-  // Limpiar reglas viejas que apunten a columna D
   var existingRules = sh.getConditionalFormatRules();
   var keepRules = existingRules.filter(function(r) {
     var ranges = r.getRanges();
     return !ranges.some(function(rg) { return rg.getColumn() === 4; });
   });
   coloresEstado.forEach(function(c) {
-    var newRule = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo(c.state)
-      .setBackground(c.bg)
-      .setFontColor(c.fg)
-      .setRanges([sh.getRange(2, 4, lastRow - 1, 1)])
-      .build();
-    keepRules.push(newRule);
+    keepRules.push(
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenTextEqualTo(c.state)
+        .setBackground(c.bg)
+        .setFontColor(c.fg)
+        .setRanges([sh.getRange(2, 4, lastRow - 1, 1)])
+        .build()
+    );
   });
   sh.setConditionalFormatRules(keepRules);
-  Logger.log('3. Conditional formatting en Estado listo');
 
-  // === 4. COLUMNA V (Internal ID) — discreta ===
+  // 4. COLUMNA V (Internal ID) y W (Items JSON) discretas
   sh.setColumnWidth(22, 120);
-  var vRange = sh.getRange(2, 22, lastRow - 1, 1);
-  vRange
+  sh.setColumnWidth(23, 100);
+  sh.getRange(2, 22, lastRow - 1, 2)
     .setFontColor('#9aa0a6')
     .setFontFamily('Roboto Mono')
-    .setFontSize(9)
-    .setHorizontalAlignment('left');
-  // El header de V también más chico
-  sh.getRange(1, 22).setFontSize(9);
-  Logger.log('4. Columna V formateada');
+    .setFontSize(9);
+  sh.getRange(1, 22, 1, 2).setFontSize(9);
 
-  // === 5. FREEZE ===
+  // 5. FREEZE
   sh.setFrozenRows(1);
-  sh.setFrozenColumns(2); // A (Contacto) + B (Empresa) siempre visibles
-  Logger.log('5. Freeze listo');
+  sh.setFrozenColumns(2);
 
-  // === 6. ROW BANDING (filas alternadas crema) ===
-  // Borrar bandings viejos
-  var bandings = sh.getBandings();
-  bandings.forEach(function(b) { b.remove(); });
-  // Aplicar nuevo
-  var bandingRange = sh.getRange(2, 1, lastRow - 1, lastCol);
-  var banding = bandingRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, false, false);
-  banding.setHeaderRowColor(null);  // ya tenemos header custom
+  // 6. BANDING
+  sh.getBandings().forEach(function(b) { b.remove(); });
+  var banding = sh.getRange(2, 1, lastRow - 1, lastCol)
+    .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, false, false);
+  banding.setHeaderRowColor(null);
   banding.setFirstRowColor('#ffffff');
-  banding.setSecondRowColor('#fbf9f4'); // crema sutil
-  Logger.log('6. Banding listo');
+  banding.setSecondRowColor('#fbf9f4');
 
-  // === 7. ANCHOS DE COLUMNA RAZONABLES ===
-  var widths = {
-    1: 200,  // A Contacto
-    2: 180,  // B Empresa
-    3: 60,   // C Pax
-    4: 140,  // D Estado
-    5: 90,   // E Vendedor
-    6: 200,  // F Tipo Evento
-    7: 110,  // G Fecha Envío
-    8: 110,  // H Fecha Evento
-    9: 110,  // I Fecha Último Contacto
-    10: 100, // J Mes
-    11: 110, // K ID Presupuesto
-    12: 130, // L Teléfono
-    13: 200, // M Email
-    14: 220, // N Nombre Evento
-    15: 220, // O Locación
-    16: 320, // P Detalle Cotizado
-    17: 110, // Q Canal
-    18: 110, // R Resultado
-    19: 180, // S Motivo Pérdida
-    20: 110, // T Calendar
-    21: 280, // U Observaciones
-    22: 120  // V Internal ID
-  };
+  // 7. ANCHOS
+  var widths = {1:200,2:180,3:60,4:140,5:90,6:200,7:110,8:110,9:110,10:100,11:110,12:130,13:200,14:220,15:220,16:320,17:110,18:110,19:180,20:110,21:280,22:120,23:100};
   Object.keys(widths).forEach(function(col) {
     sh.setColumnWidth(parseInt(col, 10), widths[col]);
   });
-  Logger.log('7. Anchos de columna listos');
 
   Logger.log('✅ Setup completo.');
 }

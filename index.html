@@ -55,6 +55,26 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .sidebar header small{display:block;color:var(--fg-dim);font-size:10px;letter-spacing:0.1em;margin-top:2px;text-transform:uppercase}
 .sidebar header .btn-reset-top{
   margin-left:auto;
+  background:rgba(224,96,58,0.10);
+  color:var(--danger);
+  border:1px solid rgba(224,96,58,0.55);
+  padding:7px 12px;
+  border-radius:4px;
+  font-family:'Organetto',sans-serif;
+  font-size:9px;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  font-weight:700;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:all .15s ease;
+}
+.sidebar header .btn-reset-top:hover{
+  background:var(--danger);
+  color:#fff;
+  border-color:var(--danger);
+}
+.sidebar header .btn-load-previo{
   background:transparent;
   color:var(--fg-dim);
   border:1px solid var(--border);
@@ -68,12 +88,15 @@ input,select,textarea{font-family:inherit;font-size:14px}
   cursor:pointer;
   white-space:nowrap;
   transition:all .15s ease;
+  margin-left:auto;
+  margin-right:8px;
 }
-.sidebar header .btn-reset-top:hover{
+.sidebar header .btn-load-previo:hover{
   color:var(--fg);
   border-color:var(--fg-dim);
   background:rgba(244,239,230,0.05);
 }
+.sidebar header .btn-load-previo + .btn-reset-top{margin-left:0}
 
 .section{margin-bottom:28px}
 .section h2{font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--fg);margin-bottom:12px;display:flex;align-items:center;gap:8px}
@@ -392,6 +415,16 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .modal-box .m-close-x{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--fg-dim);font-size:24px;cursor:pointer;padding:4px 10px;line-height:1}
 .modal-box .m-close-x:hover{color:var(--fg)}
 .modal-box .m-close{background:var(--fg);color:var(--bg);border:none;padding:12px 24px;border-radius:4px;font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;font-weight:700;margin-top:16px;cursor:pointer;width:100%}
+/* === MODAL PREVIOS === */
+.previos-search{width:100%;padding:10px 12px;background:var(--bg-soft);border:1px solid var(--border);color:var(--fg);font-family:'NeueHaas',sans-serif;font-size:13px;border-radius:4px;margin-bottom:14px;outline:none}
+.previos-search:focus{border-color:var(--fg-dim)}
+.previos-status{font-size:11px;color:var(--fg-dim);margin-bottom:12px;font-style:italic}
+.previos-list{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow-y:auto}
+.previo-item{display:block;width:100%;text-align:left;background:var(--bg-soft);border:1px solid var(--border);border-radius:4px;padding:10px 14px;cursor:pointer;color:var(--fg);font-family:'NeueHaas',sans-serif;transition:all .15s ease}
+.previo-item:hover{background:rgba(244,239,230,0.06);border-color:var(--fg-dim)}
+.previo-item .prev-line1{font-family:'Organetto',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--fg);margin-bottom:4px}
+.previo-item .prev-line2{font-size:11px;color:var(--fg-dim);line-height:1.4}
+.previo-item .prev-id{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--acc);margin-right:8px}
 </style>
 </head>
 <body>
@@ -404,6 +437,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
         <h1>Generador de Presupuestos</h1>
         <small>La Fondiatta · Abril 2026</small>
       </div>
+      <button class="btn-load-previo" onclick="abrirModalPrevios()" title="Buscá un presupuesto anterior y cargalo para editarlo">📂 Cargar previo</button>
       <button class="btn-reset-top" onclick="resetAll()" title="Borra todos los datos y crea un presupuesto nuevo">↺ Empezar de cero</button>
     </header>
 
@@ -840,6 +874,19 @@ input,select,textarea{font-family:inherit;font-size:14px}
     </div>
 
     <button class="m-close" onclick="closeStaffingGuide()">Entendido</button>
+  </div>
+</div>
+
+<!-- MODAL: Cargar presupuesto previo -->
+<div class="modal-backdrop" id="previos-modal" onclick="if(event.target===this)cerrarModalPrevios()">
+  <div class="modal-box" style="max-width:760px">
+    <button class="m-close-x" onclick="cerrarModalPrevios()" aria-label="Cerrar">×</button>
+    <h3>Cargar presupuesto <em>previo</em></h3>
+    <div class="m-sub">Buscá un presupuesto que ya registraste y cargalo para editarlo. Cuando exportes, va a actualizar ese registro en el Sheet (no crea uno nuevo).</div>
+
+    <input type="text" class="previos-search" id="previos-search" placeholder="Buscar por cliente, empresa, vendedor o ID..." oninput="filtrarPrevios()" autocomplete="off">
+    <div class="previos-status" id="previos-status">Cargando...</div>
+    <div class="previos-list" id="previos-list"></div>
   </div>
 </div>
 
@@ -2178,7 +2225,14 @@ function registerInSheet() {
     observaciones: observaciones,
     // ID interno persistente: si llega y matchea una fila existente, Apps Script ACTUALIZA esa fila.
     // Si no matchea (o el Apps Script todavía no soporta esta lógica), inserta normal.
-    presupuestoId: getOrCreatePresupuestoId()
+    presupuestoId: getOrCreatePresupuestoId(),
+    // Items en formato estructurado para poder restaurar el presupuesto desde el Sheet
+    // (Apps Script lo guarda en columna W como JSON.stringify)
+    itemsJson: JSON.stringify(items.map(i => ({
+      cat: i.cat, name: i.name, price: i.price, qty: i.qty,
+      unit: i.unit, desc: i.desc, custom: !!i.custom,
+      tipoServicio: i.tipoServicio
+    })))
   };
 
   // No-cors porque Apps Script devuelve CORS según config; usamos form-encoded
@@ -2236,10 +2290,129 @@ function openStaffingGuide() {
 function closeStaffingGuide() {
   document.getElementById('staffing-modal').classList.remove('open');
 }
-// Cerrar modal con Escape
+// Cerrar modales con Escape
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeStaffingGuide();
+  if (e.key === 'Escape') {
+    closeStaffingGuide();
+    cerrarModalPrevios();
+  }
 });
+
+// === CARGAR PRESUPUESTO PREVIO (modal) ===
+let previosCache = []; // cache local de la lista para filtrado client-side
+
+async function abrirModalPrevios() {
+  document.getElementById('previos-modal').classList.add('open');
+  document.getElementById('previos-search').value = '';
+  document.getElementById('previos-list').innerHTML = '';
+  document.getElementById('previos-status').textContent = '⏳ Cargando últimos presupuestos...';
+
+  try {
+    const url = APPS_SCRIPT_URL + '?action=list&limit=100';
+    const r = await fetch(url, { method: 'GET' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'Apps Script devolvió error');
+    previosCache = data.items || [];
+    if (previosCache.length === 0) {
+      document.getElementById('previos-status').textContent =
+        'Todavía no hay presupuestos con Internal ID. Los presupuestos exportados desde hoy en adelante van a estar disponibles acá.';
+      return;
+    }
+    document.getElementById('previos-status').textContent =
+      `${previosCache.length} presupuestos. Click en uno para cargarlo.`;
+    renderPreviosList(previosCache);
+    setTimeout(() => document.getElementById('previos-search').focus(), 100);
+  } catch (err) {
+    console.error(err);
+    document.getElementById('previos-status').textContent =
+      '⚠️ Error al cargar la lista. ' + (err.message || '') + ' (¿el Apps Script soporta action=list?)';
+  }
+}
+
+function cerrarModalPrevios() {
+  const m = document.getElementById('previos-modal');
+  if (m) m.classList.remove('open');
+}
+
+function renderPreviosList(items) {
+  const list = document.getElementById('previos-list');
+  list.innerHTML = '';
+  if (!items.length) {
+    list.innerHTML = '<div style="text-align:center;color:var(--fg-dim);font-size:12px;padding:30px">Sin resultados</div>';
+    return;
+  }
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    btn.className = 'previo-item';
+    const meta1 = [item.vendedor || '—', item.fechaEnvio || ''].filter(Boolean).join(' · ');
+    const meta2 = [item.empresa, item.fechaEvento && ('evento ' + item.fechaEvento), item.pax && (item.pax + ' pax')]
+      .filter(Boolean).join(' · ');
+    btn.innerHTML = `
+      <div class="prev-line1"><span class="prev-id">${esc(item.idPresupuesto || '')}</span> ${esc(item.contacto || item.nombreEvento || '(sin nombre)')}</div>
+      <div class="prev-line2">${esc(meta1)}${meta2 ? ' — ' + esc(meta2) : ''}</div>
+    `;
+    btn.onclick = () => cargarPrevio(item);
+    list.appendChild(btn);
+  });
+}
+
+function filtrarPrevios() {
+  const q = (document.getElementById('previos-search').value || '').trim().toLowerCase();
+  if (!q) { renderPreviosList(previosCache); return; }
+  const filtered = previosCache.filter(it => {
+    const hay = [it.idPresupuesto, it.contacto, it.empresa, it.vendedor, it.nombreEvento]
+      .filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+  renderPreviosList(filtered);
+}
+
+function cargarPrevio(item) {
+  if (!item || !item.internalId) {
+    alert('Este presupuesto no tiene Internal ID — no se puede cargar para edición.');
+    return;
+  }
+  // Guardar el internalId como sesión activa → próximo export va a UPDATE
+  try {
+    localStorage.setItem(PRESU_ID_KEY, item.internalId);
+    localStorage.setItem(PRESU_EXPORTED_KEY, '1');
+  } catch (e) {}
+
+  // Llenar campos del formulario
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  setVal('f-name', item.contacto);
+  setVal('f-company', item.empresa);
+  setVal('f-phone', item.telefono);
+  setVal('f-email', item.email);
+  setVal('f-event-name', item.nombreEvento);
+  setVal('f-address', item.locacion);
+  setVal('f-type', item.tipoEvento);
+  setVal('f-pax', item.pax);
+  setVal('f-vendor', item.vendedor);
+  setVal('f-channel', item.canal);
+  setVal('f-estado', item.estado || 'En Seguimiento');
+
+  // Fecha del evento: el Sheet la guarda como dd/MM/yyyy, el input type=date espera yyyy-MM-dd
+  if (item.fechaEvento) {
+    const m = String(item.fechaEvento).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      const yyyy = m[3], mm = String(m[2]).padStart(2,'0'), dd = String(m[1]).padStart(2,'0');
+      setVal('f-event-date', `${yyyy}-${mm}-${dd}`);
+    }
+  }
+
+  // Restaurar items si vinieron como JSON
+  if (item.items && Array.isArray(item.items)) {
+    items = item.items.map(i => ({ ...i, id: Date.now() + Math.random() }));
+  }
+
+  cerrarModalPrevios();
+  renderItems();
+  refreshTotals();
+  updateSessionBadge();
+  showSheetToast('📂 Presupuesto cargado — el próximo export ACTUALIZA el registro');
+}
 
 // Initial render
 renderDoc();

@@ -33,12 +33,16 @@ function doPost(e) {
     var ITEMS_JSON_COL = 23;  // W = Items JSON
 
     // === DEDUP: si llega presupuestoId y matchea, ACTUALIZAR ===
+    // Solo matchea si llega un presupuestoId con formato válido (empieza con 'p_').
+    // Eso evita falsos positivos contra notas viejas que pueda tener la columna V.
     var targetRow = null;
     var isUpdate = false;
-    if (data.presupuestoId && lastRow >= 2) {
+    var presuId = data.presupuestoId && String(data.presupuestoId).indexOf('p_') === 0
+      ? data.presupuestoId : '';
+    if (presuId && lastRow >= 2) {
       var internalIds = sh.getRange(2, INTERNAL_ID_COL, lastRow - 1, 1).getValues();
       for (var j = 0; j < internalIds.length; j++) {
-        if (internalIds[j][0] === data.presupuestoId) {
+        if (internalIds[j][0] === presuId) {
           targetRow = j + 2;
           isUpdate = true;
           data.id = sh.getRange(targetRow, ID_PRES_COL).getValue();
@@ -168,6 +172,9 @@ function listPresupuestos(e) {
     var row = data[i];
     var internalId = row[21];   // V
     if (!internalId) continue;  // sin internal ID no se puede restaurar
+    // Filtro: solo aceptar IDs con formato UUID generado (p_xxx_yyy).
+    // Esto excluye notas/textos viejos que pudieran existir en la columna V.
+    if (String(internalId).indexOf('p_') !== 0) continue;
 
     var vendedorRow = String(row[4] || '');
     if (vendedorFiltro && vendedorRow.toLowerCase() !== vendedorFiltro) continue;

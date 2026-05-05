@@ -166,3 +166,167 @@ function testPost() {
   Logger.log('Tiempo: ' + (Date.now() - t0) + 'ms');
   Logger.log(result.getContent());
 }
+
+// ============================================================
+// SETUP DEL SHEET — look & feel La Fondiatta
+// ============================================================
+// Función para correr UNA SOLA VEZ desde el editor.
+// Aplica:
+//  - Header negro con texto crema (estilo fondiattero)
+//  - Dropdowns en Estado (D), Vendedor (E), Tipo de Evento (F)
+//  - Date pickers en G, H, I (las 3 columnas de fecha)
+//  - Conditional formatting en Estado: verde/amarillo/azul/gris/rojo
+//  - Columna V (Internal ID) discreta: gris monospace, ancho 120px
+//  - Freeze de la fila 1 y de las 2 primeras columnas
+//  - Filas alternadas (banding) crema
+//
+// Es IDEMPOTENTE: se puede correr varias veces sin romper nada.
+// ============================================================
+function setupSheetFormat() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheets()[0];
+  var lastRow = Math.max(sh.getLastRow(), 2);
+  var lastCol = 22;
+
+  Logger.log('Empezando setup — ' + lastRow + ' filas, ' + lastCol + ' columnas');
+
+  // === 1. HEADER ROW — fondiattero ===
+  var headerRange = sh.getRange(1, 1, 1, lastCol);
+  headerRange
+    .setBackground('#0a0a0a')
+    .setFontColor('#f4efe6')
+    .setFontWeight('bold')
+    .setFontSize(11)
+    .setFontFamily('Inter')
+    .setHorizontalAlignment('left')
+    .setVerticalAlignment('middle');
+  sh.setRowHeight(1, 36);
+  Logger.log('1. Header listo');
+
+  // === 2. DROPDOWNS ===
+  // D — Estado
+  var estados = ['Pendiente de Enviar', 'En Seguimiento', 'Avanzado', 'Confirmado', 'Perdido'];
+  var ruleEstado = SpreadsheetApp.newDataValidation()
+    .requireValueInList(estados, true)
+    .setAllowInvalid(true)
+    .build();
+  sh.getRange(2, 4, lastRow - 1, 1).setDataValidation(ruleEstado);
+
+  // E — Vendedor
+  var vendedores = ['JP', 'Colo', 'Ako', 'Camba', 'Chino', 'Zenon', 'Nahue'];
+  var ruleVendedor = SpreadsheetApp.newDataValidation()
+    .requireValueInList(vendedores, true)
+    .setAllowInvalid(true)
+    .build();
+  sh.getRange(2, 5, lastRow - 1, 1).setDataValidation(ruleVendedor);
+
+  // F — Tipo de Evento
+  var tiposEvento = [
+    'Desayuno Corporativo', 'Almuerzo Corporativo', 'Merienda Corporativa',
+    'After Corporativo', 'Cena Corporativa', 'Desayuno + Almuerzo Corporativo',
+    'Evento Corporativo', 'Casamiento', 'Civil', 'Cumpleaños',
+    'Evento Social', 'Catering', 'Propuesta General',
+    'Entrega Corporativa', 'Entrega Particular'
+  ];
+  var ruleTipo = SpreadsheetApp.newDataValidation()
+    .requireValueInList(tiposEvento, true)
+    .setAllowInvalid(true)
+    .build();
+  sh.getRange(2, 6, lastRow - 1, 1).setDataValidation(ruleTipo);
+
+  // G, H, I — Date pickers (Fecha Envío, Fecha Evento, Fecha Último Contacto)
+  var ruleFecha = SpreadsheetApp.newDataValidation()
+    .requireDate()
+    .setAllowInvalid(true)
+    .build();
+  sh.getRange(2, 7, lastRow - 1, 3).setDataValidation(ruleFecha);
+
+  Logger.log('2. Dropdowns y date pickers listos');
+
+  // === 3. CONDITIONAL FORMATTING en Estado (D) ===
+  var coloresEstado = [
+    { state: 'Confirmado',         bg: '#d4edda', fg: '#155724' }, // verde
+    { state: 'Avanzado',           bg: '#fff3cd', fg: '#856404' }, // amarillo
+    { state: 'En Seguimiento',     bg: '#cce5ff', fg: '#004085' }, // azul
+    { state: 'Pendiente de Enviar',bg: '#e2e3e5', fg: '#383d41' }, // gris
+    { state: 'Perdido',            bg: '#f8d7da', fg: '#721c24' }  // rojo
+  ];
+  // Limpiar reglas viejas que apunten a columna D
+  var existingRules = sh.getConditionalFormatRules();
+  var keepRules = existingRules.filter(function(r) {
+    var ranges = r.getRanges();
+    return !ranges.some(function(rg) { return rg.getColumn() === 4; });
+  });
+  coloresEstado.forEach(function(c) {
+    var newRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo(c.state)
+      .setBackground(c.bg)
+      .setFontColor(c.fg)
+      .setRanges([sh.getRange(2, 4, lastRow - 1, 1)])
+      .build();
+    keepRules.push(newRule);
+  });
+  sh.setConditionalFormatRules(keepRules);
+  Logger.log('3. Conditional formatting en Estado listo');
+
+  // === 4. COLUMNA V (Internal ID) — discreta ===
+  sh.setColumnWidth(22, 120);
+  var vRange = sh.getRange(2, 22, lastRow - 1, 1);
+  vRange
+    .setFontColor('#9aa0a6')
+    .setFontFamily('Roboto Mono')
+    .setFontSize(9)
+    .setHorizontalAlignment('left');
+  // El header de V también más chico
+  sh.getRange(1, 22).setFontSize(9);
+  Logger.log('4. Columna V formateada');
+
+  // === 5. FREEZE ===
+  sh.setFrozenRows(1);
+  sh.setFrozenColumns(2); // A (Contacto) + B (Empresa) siempre visibles
+  Logger.log('5. Freeze listo');
+
+  // === 6. ROW BANDING (filas alternadas crema) ===
+  // Borrar bandings viejos
+  var bandings = sh.getBandings();
+  bandings.forEach(function(b) { b.remove(); });
+  // Aplicar nuevo
+  var bandingRange = sh.getRange(2, 1, lastRow - 1, lastCol);
+  var banding = bandingRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, false, false);
+  banding.setHeaderRowColor(null);  // ya tenemos header custom
+  banding.setFirstRowColor('#ffffff');
+  banding.setSecondRowColor('#fbf9f4'); // crema sutil
+  Logger.log('6. Banding listo');
+
+  // === 7. ANCHOS DE COLUMNA RAZONABLES ===
+  var widths = {
+    1: 200,  // A Contacto
+    2: 180,  // B Empresa
+    3: 60,   // C Pax
+    4: 140,  // D Estado
+    5: 90,   // E Vendedor
+    6: 200,  // F Tipo Evento
+    7: 110,  // G Fecha Envío
+    8: 110,  // H Fecha Evento
+    9: 110,  // I Fecha Último Contacto
+    10: 100, // J Mes
+    11: 110, // K ID Presupuesto
+    12: 130, // L Teléfono
+    13: 200, // M Email
+    14: 220, // N Nombre Evento
+    15: 220, // O Locación
+    16: 320, // P Detalle Cotizado
+    17: 110, // Q Canal
+    18: 110, // R Resultado
+    19: 180, // S Motivo Pérdida
+    20: 110, // T Calendar
+    21: 280, // U Observaciones
+    22: 120  // V Internal ID
+  };
+  Object.keys(widths).forEach(function(col) {
+    sh.setColumnWidth(parseInt(col, 10), widths[col]);
+  });
+  Logger.log('7. Anchos de columna listos');
+
+  Logger.log('✅ Setup completo.');
+}

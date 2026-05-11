@@ -227,6 +227,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
   /* Se lee de arriba hacia abajo en la página (LA FONDIATTA) */
   writing-mode:vertical-rl;
   color:var(--fg);
+  font-variant-ligatures:none;
+  font-feature-settings:"liga" 0,"dlig" 0,"clig" 0,"calt" 0;
 }
 .doc .page-iso{
   position:absolute;
@@ -397,6 +399,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
   font-family:'Organetto',sans-serif;
   font-weight:700;font-size:9px;letter-spacing:0.3em;
   color:#f4efe6;text-transform:uppercase;
+  font-variant-ligatures:none;
+  font-feature-settings:"liga" 0,"dlig" 0,"clig" 0,"calt" 0;
 }
 .doc-cierre .dc-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8mm}
 .doc-cierre .dc-head .dc-title h1{
@@ -408,7 +412,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 }
 .doc-cierre .dc-client{font-size:9.5px;line-height:1.7;letter-spacing:0.06em;text-transform:uppercase;color:#c9c2b5}
 .doc-cierre .dc-client .dc-label{color:#f4efe6;font-weight:700;font-family:'Organetto',sans-serif;letter-spacing:0.12em;font-size:9px}
-.doc-cierre .dc-head .dc-logo{font-family:'Organetto',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.18em;color:#f4efe6;text-align:right}
+.doc-cierre .dc-head .dc-logo{font-family:'Organetto',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.18em;color:#f4efe6;text-align:right;font-variant-ligatures:none;font-feature-settings:"liga" 0,"dlig" 0,"clig" 0,"calt" 0}
 .doc-cierre h2{
   font-family:'Organetto',sans-serif;font-weight:700;
   font-size:30px;margin:0 0 6mm;letter-spacing:-0.01em;
@@ -485,6 +489,34 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .previo-item .prev-line1{font-family:'Organetto',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--fg);margin-bottom:4px}
 .previo-item .prev-line2{font-size:11px;color:var(--fg-dim);line-height:1.4}
 .previo-item .prev-id{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--acc);margin-right:8px}
+
+/* === MODAL PDF UPLOAD === */
+.pdf-dropzone{border:2px dashed var(--border);border-radius:6px;padding:36px 20px;text-align:center;cursor:pointer;transition:all .15s ease;background:rgba(244,239,230,0.02)}
+.pdf-dropzone:hover,.pdf-dropzone.dragover{border-color:var(--fg-dim);background:rgba(244,239,230,0.06)}
+.pdf-dropzone .pd-icon{font-size:32px;margin-bottom:10px;opacity:.7}
+.pdf-dropzone .pd-title{font-family:'Organetto',sans-serif;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:var(--fg);margin-bottom:6px}
+.pdf-dropzone .pd-sub{font-size:11px;color:var(--fg-dim);line-height:1.5}
+.pdf-dropzone input[type=file]{display:none}
+.pdf-status{margin-top:14px;padding:12px 14px;border-radius:4px;font-size:12px;line-height:1.5;display:none}
+.pdf-status.info{display:block;background:#141414;border-left:3px solid var(--fg);color:var(--fg-dim)}
+.pdf-status.error{display:block;background:#2a1414;border-left:3px solid #c44;color:#f4efe6}
+.pdf-status.ok{display:block;background:#142a14;border-left:3px solid #4c4;color:#f4efe6}
+.pdf-preview-form{display:none;margin-top:18px;padding-top:18px;border-top:1px solid var(--border)}
+.pdf-preview-form.open{display:block}
+.pdf-preview-form .pf-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-bottom:12px}
+.pdf-preview-form .pf-field{display:flex;flex-direction:column;gap:3px}
+.pdf-preview-form .pf-field.full{grid-column:1/-1}
+.pdf-preview-form label{font-family:'Organetto',sans-serif;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--fg-dim);font-weight:700}
+.pdf-preview-form input,.pdf-preview-form textarea,.pdf-preview-form select{padding:8px 10px;background:#0a0a0a;border:1px solid var(--border);color:var(--fg);border-radius:4px;font-family:'NeueHaas',sans-serif;font-size:12px;outline:none;transition:border-color .15s}
+.pdf-preview-form input:focus,.pdf-preview-form textarea:focus,.pdf-preview-form select:focus{border-color:var(--fg-dim)}
+.pdf-preview-form textarea{resize:vertical;min-height:50px;font-family:'NeueHaas',sans-serif}
+.pdf-actions{display:flex;gap:10px;margin-top:18px}
+.pdf-actions button{flex:1;padding:12px 18px;border-radius:4px;font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;cursor:pointer;border:1px solid var(--border);transition:all .15s}
+.pdf-actions .pa-cancel{background:transparent;color:var(--fg-dim)}
+.pdf-actions .pa-cancel:hover{color:var(--fg);border-color:var(--fg-dim)}
+.pdf-actions .pa-confirm{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.pdf-actions .pa-confirm:hover{opacity:.85}
+.pdf-actions button:disabled{opacity:.4;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -501,6 +533,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
       </div>
       <div class="header-actions">
         <button class="btn-load-previo" onclick="abrirModalPrevios()" title="Buscá un presupuesto anterior y cargalo para editarlo">📂 Cargar previo</button>
+        <button class="btn-load-previo" onclick="abrirModalPdf()" title="Subí un PDF (propio o de proveedor) y lo registramos automáticamente en el Sheet de seguimiento">📥 Subir PDF</button>
         <button class="btn-reset-top" onclick="resetAll()" title="Borra todos los datos y crea un presupuesto nuevo">↺ Empezar de cero</button>
       </div>
     </header>
@@ -997,6 +1030,73 @@ input,select,textarea{font-family:inherit;font-size:14px}
   </div>
 </div>
 
+<!-- MODAL: Subir PDF y registrar en Sheet -->
+<div class="modal-backdrop" id="pdf-modal" onclick="if(event.target===this)cerrarModalPdf()">
+  <div class="modal-box" style="max-width:780px">
+    <button class="m-close-x" onclick="cerrarModalPdf()" aria-label="Cerrar">×</button>
+    <h3>Subir PDF a <em>seguimiento</em></h3>
+    <div class="m-sub">Subí cualquier PDF de propuesta o presupuesto (propio o externo). Gemini extrae los datos clave, los podés revisar/editar, y se registra como nueva fila en la Sheet de seguimiento.</div>
+
+    <div class="pdf-dropzone" id="pdf-dropzone" onclick="document.getElementById('pdf-file-input').click()">
+      <div class="pd-icon">📄</div>
+      <div class="pd-title">Arrastrá un PDF acá o tocá para elegir</div>
+      <div class="pd-sub">Formatos aceptados: .pdf · Máx 20 MB</div>
+      <input type="file" id="pdf-file-input" accept="application/pdf,.pdf" onchange="handlePdfFile(event)">
+    </div>
+
+    <div class="pdf-status" id="pdf-status"></div>
+
+    <div class="pdf-preview-form" id="pdf-preview-form">
+      <h4 style="margin-top:0">Datos extraídos · revisá antes de confirmar</h4>
+      <div class="pf-grid">
+        <div class="pf-field"><label>Contacto</label><input type="text" id="pf-contacto"></div>
+        <div class="pf-field"><label>Cliente / Empresa</label><input type="text" id="pf-empresa"></div>
+        <div class="pf-field"><label>Cantidad Personas</label><input type="text" id="pf-pax"></div>
+        <div class="pf-field"><label>Estado</label>
+          <select id="pf-estado">
+            <option value="Pendiente de Enviar">Pendiente de Enviar</option>
+            <option value="En Seguimiento" selected>En Seguimiento</option>
+            <option value="Avanzado">Avanzado</option>
+            <option value="Confirmado">Confirmado</option>
+            <option value="Perdido">Perdido</option>
+            <option value="Cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div class="pf-field"><label>Vendedor</label>
+          <select id="pf-vendedor">
+            <option value="">—</option>
+            <option value="Camba">Camba</option>
+            <option value="Colo">Colo</option>
+            <option value="JP">JP</option>
+            <option value="Ako">Ako</option>
+          </select>
+        </div>
+        <div class="pf-field"><label>Tipo de Evento</label><input type="text" id="pf-tipo"></div>
+        <div class="pf-field"><label>Fecha Evento (texto)</label><input type="text" id="pf-fecha-evento" placeholder="ej: jueves 4 de junio"></div>
+        <div class="pf-field"><label>Mes</label><input type="text" id="pf-mes" placeholder="ej: junio 26"></div>
+        <div class="pf-field"><label>Teléfono / WhatsApp</label><input type="text" id="pf-telefono"></div>
+        <div class="pf-field"><label>Email</label><input type="text" id="pf-email"></div>
+        <div class="pf-field full"><label>Nombre Evento</label><input type="text" id="pf-nombre-evento"></div>
+        <div class="pf-field full"><label>Locación</label><input type="text" id="pf-locacion"></div>
+        <div class="pf-field full"><label>Detalle Cotizado</label><textarea id="pf-detalle"></textarea></div>
+        <div class="pf-field"><label>Canal</label>
+          <select id="pf-canal">
+            <option value="">—</option>
+            <option value="Cliente Existente">Cliente Existente</option>
+            <option value="Vendedor">Vendedor</option>
+            <option value="Web">Web</option>
+          </select>
+        </div>
+        <div class="pf-field full"><label>Observaciones</label><textarea id="pf-observaciones"></textarea></div>
+      </div>
+      <div class="pdf-actions">
+        <button class="pa-cancel" onclick="cerrarModalPdf()">Cancelar</button>
+        <button class="pa-confirm" id="pf-confirm-btn" onclick="confirmarRegistroPdf()">Registrar en Sheet</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
 <script>
@@ -1004,6 +1104,12 @@ input,select,textarea{font-family:inherit;font-size:14px}
 // URL del Web App deployado en tu Sheet de Seguimiento.
 // Si cambiás el deployment, actualizá esta URL.
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxc7efQHG8D7U4Oq2B1I0iQDPrllXmFA83lAiYmogVu8DvwnrDJ9YSaZbdEHSVPXw52JQ/exec';
+
+// === APPS SCRIPT URL · PDF UPLOAD (extracción con Gemini) ===
+// Endpoint independiente del deployment del script PDF→Sheet.
+// Después de hacer "Deploy → New deployment" del archivo apps_script_pdf_to_sheet.gs,
+// pegá la URL /exec acá. Si está vacío, el botón "Subir PDF" muestra error.
+const APPS_SCRIPT_PDF_URL = '';
 
 // === CATÁLOGO ===
 const CATALOG = [
@@ -1084,9 +1190,9 @@ const CATALOG = [
   {cat:'Eventos · Finger', name:'Guiso de Lentejas', price:28000, unit:'persona', desc:'Chorizo colorado, panceta ahumada y verduras · formato cazuela'},
 
   // === BARRA ===
-  {cat:'Barra', name:'Barra Sin Alcohol Básica', price:5500, unit:'persona', desc:'Café de filtro, té, agua con/sin gas'},
-  {cat:'Barra', name:'Barra Sin Alcohol Premium', price:7500, unit:'persona', desc:'Café Nespresso, té, agua con/sin gas'},
-  {cat:'Barra', name:'Barra Sin Alcohol con Gaseosas', price:9000, unit:'persona', desc:'Línea Coca Cola + agua + limonadas + mocktails'},
+  {cat:'Barra', name:'Café de filtro', price:5500, unit:'persona', desc:'Café de filtro, té, agua con/sin gas · formato Evento'},
+  {cat:'Barra', name:'Café Nespresso', price:7500, unit:'persona', desc:'Café Nespresso, té, agua con/sin gas · formato Evento'},
+  {cat:'Barra', name:'Bebidas Sin Alcohol con Gaseosas', price:9000, unit:'persona', desc:'Línea Coca Cola + agua + limonadas + mocktails · formato Evento'},
   {cat:'Barra', name:'Barra Clásica', price:33700, unit:'persona', desc:'Heineken · Gin Tonic (Bosque) · Maracuchelo · Fernet Branca · Campari Orange · Bebida sin alcohol (línea Coca Cola) · Limonada · Cerveza 0.0'},
   {cat:'Barra', name:'Barra Premium', price:41500, unit:'persona', desc:'Todos los tragos de la Barra Clásica + 5 a elección: Aperol Spritz · Mojito · Cuba Libre · Whisky Red Label · Caipi Frutos Rojos · Caipi Maracuyá · Caipiroska · Vodka con Jugo · Cynar Julep · Daikiri · Tinto de Verano · Vermú'},
   {cat:'Barra', name:'Heineken Libre', price:14000, unit:'persona', desc:'Cerveza Heineken libre · incluye enfriado y vajilla'},
@@ -2661,6 +2767,178 @@ renderDoc();
 refreshTotals();
 // Mostrar el badge de sesión si hay un presupuesto previo en localStorage
 updateSessionBadge();
+
+// ==================================================================
+// === SUBIR PDF Y REGISTRAR EN SHEET (Gemini → Apps Script) ========
+// ==================================================================
+
+let _pdfExtracted = null;
+let _pdfFilename = '';
+
+function abrirModalPdf() {
+  const modal = document.getElementById('pdf-modal');
+  modal.classList.add('open');
+  // Reset
+  document.getElementById('pdf-file-input').value = '';
+  document.getElementById('pdf-status').className = 'pdf-status';
+  document.getElementById('pdf-status').textContent = '';
+  document.getElementById('pdf-preview-form').classList.remove('open');
+  _pdfExtracted = null;
+  _pdfFilename = '';
+
+  // Drag & drop handlers
+  const dz = document.getElementById('pdf-dropzone');
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('dragover'); };
+  dz.ondragleave = () => dz.classList.remove('dragover');
+  dz.ondrop = (e) => {
+    e.preventDefault();
+    dz.classList.remove('dragover');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handlePdfFile({ target: { files: e.dataTransfer.files } });
+    }
+  };
+}
+
+function cerrarModalPdf() {
+  document.getElementById('pdf-modal').classList.remove('open');
+}
+
+function setPdfStatus(msg, kind) {
+  const el = document.getElementById('pdf-status');
+  el.textContent = msg;
+  el.className = 'pdf-status ' + (kind || 'info');
+}
+
+async function handlePdfFile(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    setPdfStatus('El archivo no parece un PDF. Probá de nuevo.', 'error');
+    return;
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    setPdfStatus('El PDF supera 20 MB. Reducilo o subilo en partes.', 'error');
+    return;
+  }
+  if (!APPS_SCRIPT_PDF_URL) {
+    setPdfStatus('Falta configurar la URL del Apps Script de PDF. Avisale a Camba.', 'error');
+    return;
+  }
+
+  _pdfFilename = file.name;
+  setPdfStatus(`Leyendo "${file.name}" (${(file.size/1024).toFixed(0)} KB)…`, 'info');
+
+  try {
+    const base64 = await fileToBase64(file);
+    setPdfStatus('Extrayendo datos con Gemini… (puede tardar 10–30 seg)', 'info');
+    const res = await callPdfEndpoint({ filename: file.name, pdfBase64: base64, dryRun: true });
+    if (!res.ok) throw new Error(res.error || 'Error desconocido');
+    _pdfExtracted = res.data;
+    fillPreviewForm(res.data);
+    document.getElementById('pdf-preview-form').classList.add('open');
+    setPdfStatus('Datos extraídos. Revisá y editá lo que haga falta antes de registrar.', 'ok');
+  } catch (err) {
+    console.error(err);
+    setPdfStatus('No se pudo extraer datos del PDF: ' + err.message, 'error');
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const comma = dataUrl.indexOf(',');
+      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function callPdfEndpoint(payload) {
+  // Apps Script web apps redirigen a googleusercontent.com en POST.
+  // Usamos text/plain para evitar el preflight CORS y acceder a la respuesta.
+  const res = await fetch(APPS_SCRIPT_PDF_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload),
+    redirect: 'follow'
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch { throw new Error('Respuesta no-JSON: ' + text.slice(0, 200)); }
+}
+
+function fillPreviewForm(d) {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  set('pf-contacto',        d['Contacto']);
+  set('pf-empresa',         d['Cliente / Empresa']);
+  set('pf-pax',             d['Cantidad Personas']);
+  set('pf-estado',          d['Estado Presupuesto'] || 'En Seguimiento');
+  set('pf-vendedor',        d['Vendedor']);
+  set('pf-tipo',            d['Tipo de Evento']);
+  set('pf-fecha-evento',    d['Fecha Evento']);
+  set('pf-mes',             d['Mes']);
+  set('pf-telefono',        d['Teléfono / WhatsApp']);
+  set('pf-email',           d['Email']);
+  set('pf-nombre-evento',   d['Nombre Evento']);
+  set('pf-locacion',        d['Locación']);
+  set('pf-detalle',         d['Detalle Cotizado']);
+  set('pf-canal',           d['Canal de adquisición']);
+  set('pf-observaciones',   d['Observaciones']);
+}
+
+function readPreviewForm() {
+  const get = (id) => (document.getElementById(id).value || '').trim();
+  return {
+    'Contacto':              get('pf-contacto'),
+    'Cliente / Empresa':     get('pf-empresa'),
+    'Cantidad Personas':     get('pf-pax'),
+    'Estado Presupuesto':    get('pf-estado'),
+    'Vendedor':              get('pf-vendedor'),
+    'Tipo de Evento':        get('pf-tipo'),
+    'Fecha Envío':           '',
+    'Fecha Evento':          get('pf-fecha-evento'),
+    'Fecha Último Contacto': '',
+    'Mes':                   get('pf-mes'),
+    'ID Presupuesto':        '',
+    'Teléfono / WhatsApp':   get('pf-telefono'),
+    'Email':                 get('pf-email'),
+    'Nombre Evento':         get('pf-nombre-evento'),
+    'Locación':              get('pf-locacion'),
+    'Detalle Cotizado':      get('pf-detalle'),
+    'Canal de adquisición':  get('pf-canal'),
+    'Resultado':             '',
+    'Motivo de Pérdida':     '',
+    'Se agendo en Calendar?':'',
+    'Observaciones':         get('pf-observaciones'),
+    'INTERNAL ID':           'PDF: ' + (_pdfFilename || 'subido manualmente')
+  };
+}
+
+async function confirmarRegistroPdf() {
+  const btn = document.getElementById('pf-confirm-btn');
+  btn.disabled = true;
+  setPdfStatus('Registrando en la Sheet…', 'info');
+
+  try {
+    const confirmedData = readPreviewForm();
+    const res = await callPdfEndpoint({
+      filename: _pdfFilename,
+      confirmedData,
+      dryRun: false
+    });
+    if (!res.ok) throw new Error(res.error || 'Error desconocido');
+    setPdfStatus(`✅ Registrado como ${res.data['ID Presupuesto']} en fila ${res.row}.`, 'ok');
+    setTimeout(() => cerrarModalPdf(), 1800);
+  } catch (err) {
+    console.error(err);
+    setPdfStatus('No se pudo registrar: ' + err.message, 'error');
+    btn.disabled = false;
+  }
+}
 </script>
 </body>
 </html>

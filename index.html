@@ -2577,6 +2577,8 @@ function registerInSheet() {
     detalle: detalleFinal,
     canal: document.getElementById('f-channel').value.trim(),
     observaciones: observaciones,
+    // Monto total calculado (columna X del Sheet)
+    monto: Math.round(t.total),
     // ID interno persistente: si llega y matchea una fila existente, Apps Script ACTUALIZA esa fila.
     // Si no matchea (o el Apps Script todavía no soporta esta lógica), inserta normal.
     presupuestoId: getOrCreatePresupuestoId(),

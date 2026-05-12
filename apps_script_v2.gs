@@ -1,18 +1,17 @@
 // ============================================================
 // La Fondiatta — Receptor de Presupuestos desde el Generador
-// v3.0 — UPDATE + listado para restore + items JSON en columna W
+// v4.0 — Monto en col X + endpoint ?action=dashboard
 // ============================================================
 //
-// REQUISITOS DEL SHEET:
-//   Columna V "Internal ID"   (UUID interno, agregar manual)
-//   Columna W "Items JSON"    (ítems serializados, agregar manual)
-//
-// Cambios v3.0 vs v2.1:
-// - doPost ahora guarda itemsJson (payload.itemsJson) en columna W.
-// - doGet?action=list devuelve los últimos N presupuestos con todos los
-//   campos necesarios para repopular el formulario (incluye items).
-// - doGet?action=list&vendedor=Colo filtra por vendedor.
-// - doGet sin action sigue siendo health check.
+// COLUMNAS DEL SHEET:
+//   A  Contacto            B  Cliente/Empresa      C  Pax
+//   D  Estado              E  Vendedor              F  Tipo Evento
+//   G  Fecha Envío         H  Fecha Evento          I  Fecha Último Contacto
+//   J  Mes                 K  ID Presupuesto        L  Teléfono
+//   M  Email               N  Nombre Evento         O  Locación
+//   P  Detalle Cotizado     Q  Canal                 R  Resultado
+//   S  Motivo Pérdida      T  Calendar?             U  Observaciones
+//   V  Internal ID         W  Items JSON            X  Monto (NUEVO v4.0)
 // ============================================================
 
 function doPost(e) {
@@ -28,13 +27,12 @@ function doPost(e) {
     var sh = ss.getSheets()[0];
     var lastRow = sh.getLastRow();
 
-    var ID_PRES_COL = 11;     // K = ID Presupuesto (P-2026-XXX)
-    var INTERNAL_ID_COL = 22; // V = Internal ID (UUID)
-    var ITEMS_JSON_COL = 23;  // W = Items JSON
+    var ID_PRES_COL    = 11; // K
+    var INTERNAL_ID_COL = 22; // V
+    var ITEMS_JSON_COL  = 23; // W
+    var MONTO_COL       = 24; // X — nuevo
 
     // === DEDUP: si llega presupuestoId y matchea, ACTUALIZAR ===
-    // Solo matchea si llega un presupuestoId con formato válido (empieza con 'p_').
-    // Eso evita falsos positivos contra notas viejas que pueda tener la columna V.
     var targetRow = null;
     var isUpdate = false;
     var presuId = data.presupuestoId && String(data.presupuestoId).indexOf('p_') === 0
@@ -115,9 +113,14 @@ function doPost(e) {
       sh.getRange(targetRow, INTERNAL_ID_COL).setValue(data.presupuestoId);
     }
 
-    // W — Items JSON (para poder restaurar el presupuesto)
+    // W — Items JSON
     if (data.itemsJson) {
       sh.getRange(targetRow, ITEMS_JSON_COL).setValue(data.itemsJson);
+    }
+
+    // X — Monto (total calculado por la app)
+    if (data.monto !== undefined && data.monto !== null && data.monto !== '') {
+      sh.getRange(targetRow, MONTO_COL).setValue(Number(data.monto) || 0);
     }
 
     return ContentService
@@ -132,16 +135,15 @@ function doPost(e) {
 }
 
 // ============================================================
-// doGet — health check + listado de presupuestos para restore
+// doGet — health check + list (restore) + dashboard
 // ============================================================
 function doGet(e) {
   try {
     var action = (e && e.parameter && e.parameter.action) || '';
-    if (action === 'list') {
-      return listPresupuestos(e);
-    }
+    if (action === 'list') return listPresupuestos(e);
+    if (action === 'dashboard') return dashboardData(e);
     return ContentService
-      .createTextOutput(JSON.stringify({ok: true, msg: 'La Fondiatta Apps Script online v3.0'}))
+      .createTextOutput(JSON.stringify({ok: true, msg: 'La Fondiatta Apps Script online v4.0'}))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
@@ -150,6 +152,55 @@ function doGet(e) {
   }
 }
 
+// ============================================================
+// dashboardData — todos los presupuestos con vendedor, para el
+// dashboard de métricas. No filtra por internal ID.
+// ============================================================
+function dashboardData(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheets()[0];
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ok: true, items: []}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Leer todas las columnas A-X (24 cols)
+  var data = sh.getRange(2, 1, lastRow - 1, 24).getValues();
+  var items = [];
+
+  for (var i = 0; i < data.length; i++) {
+    var row = data[i];
+    var vendedor = String(row[4] || '').trim();
+    if (!vendedor) continue; // filas sin vendedor no aportan al dashboard
+
+    items.push({
+      contacto:      String(row[0]  || ''),
+      empresa:       String(row[1]  || ''),
+      pax:           row[2] || '',
+      estado:        String(row[3]  || ''),
+      vendedor:      vendedor,
+      tipoEvento:    String(row[5]  || ''),
+      fechaEnvio:    formatDate(row[6]),
+      fechaEvento:   formatDate(row[7]),
+      mes:           String(row[9]  || ''),
+      idPresupuesto: String(row[10] || ''),
+      canal:         String(row[16] || ''),
+      resultado:     String(row[17] || ''),
+      motivoPerdida: String(row[18] || ''),
+      monto:         Number(row[23]) || 0
+    });
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ok: true, items: items}))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============================================================
+// listPresupuestos — para restaurar presupuestos en la app
+// ============================================================
 function listPresupuestos(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheets()[0];
@@ -163,47 +214,44 @@ function listPresupuestos(e) {
   var vendedorFiltro = ((e.parameter.vendedor || '').trim()).toLowerCase();
   var limit = parseInt(e.parameter.limit, 10) || 50;
 
-  // Lectura BATCH de las 23 columnas (A-W)
-  var data = sh.getRange(2, 1, lastRow - 1, 23).getValues();
+  var data = sh.getRange(2, 1, lastRow - 1, 24).getValues();
 
   var items = [];
-  // Iteramos de la última fila hacia atrás (más recientes primero)
   for (var i = data.length - 1; i >= 0 && items.length < limit; i--) {
     var row = data[i];
-    var internalId = row[21];   // V
-    if (!internalId) continue;  // sin internal ID no se puede restaurar
-    // Filtro: solo aceptar IDs con formato UUID generado (p_xxx_yyy).
-    // Esto excluye notas/textos viejos que pudieran existir en la columna V.
+    var internalId = row[21]; // V
+    if (!internalId) continue;
     if (String(internalId).indexOf('p_') !== 0) continue;
 
     var vendedorRow = String(row[4] || '');
     if (vendedorFiltro && vendedorRow.toLowerCase() !== vendedorFiltro) continue;
 
-    var itemsJson = row[22];    // W
+    var itemsJson = row[22]; // W
     var itemsParsed = null;
     if (itemsJson) {
       try { itemsParsed = JSON.parse(itemsJson); } catch (err) { itemsParsed = null; }
     }
 
     items.push({
-      internalId: internalId,
-      idPresupuesto: row[10],   // K
-      contacto: row[0],         // A
-      empresa: row[1],          // B
-      pax: row[2],              // C
-      estado: row[3],           // D
-      vendedor: vendedorRow,    // E
-      tipoEvento: row[5],       // F
-      fechaEnvio: formatDate(row[6]),    // G
-      fechaEvento: formatDate(row[7]),   // H
-      mes: row[9],              // J
-      telefono: row[11],        // L
-      email: row[12],           // M
-      nombreEvento: row[13],    // N
-      locacion: row[14],        // O
-      canal: row[16],           // Q
-      observaciones: row[20],   // U
-      items: itemsParsed
+      internalId:    internalId,
+      idPresupuesto: row[10],
+      contacto:      row[0],
+      empresa:       row[1],
+      pax:           row[2],
+      estado:        row[3],
+      vendedor:      vendedorRow,
+      tipoEvento:    row[5],
+      fechaEnvio:    formatDate(row[6]),
+      fechaEvento:   formatDate(row[7]),
+      mes:           row[9],
+      telefono:      row[11],
+      email:         row[12],
+      nombreEvento:  row[13],
+      locacion:      row[14],
+      canal:         row[16],
+      observaciones: row[20],
+      monto:         Number(row[23]) || 0,
+      items:         itemsParsed
     });
   }
 
@@ -220,67 +268,16 @@ function formatDate(v) {
   return String(v);
 }
 
-// === TEST DEBUG ===
-function test() {
-  Logger.log('1. Empezó');
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  Logger.log('2. Spreadsheet OK: ' + ss.getName());
-  var sh = ss.getSheets()[0];
-  Logger.log('3. Sheet OK: ' + sh.getName() + ', filas: ' + sh.getLastRow());
-  Logger.log('4. Fin');
-}
-
-// === TEST POST ===
-function testPost() {
-  var fakePayload = {
-    postData: {
-      contents: JSON.stringify({
-        contacto: '🧪 TEST CLIENTE',
-        empresa: 'TEST SA',
-        pax: 50,
-        vendedor: 'Colo',
-        tipoEvento: 'Desayuno Corporativo',
-        fechaEvento: '01/05/2026',
-        telefono: '+54 11 1234-5678',
-        email: 'test@test.com',
-        nombreEvento: 'Prueba de integración',
-        locacion: 'CABA',
-        detalle: 'Desayuno Premium x 50 · Barra sin alcohol',
-        canal: 'Vendedor',
-        mes: 'mayo 26',
-        observaciones: 'TOTAL c/IVA: $1.500.000',
-        presupuestoId: 'p_test_123',
-        itemsJson: JSON.stringify([
-          {cat:'Corpo · Desayunos', name:'Desayuno Premium', price:25500, qty:50, unit:'persona', desc:'', custom:false, tipoServicio:'Entrada'}
-        ])
-      })
-    }
-  };
-  var t0 = Date.now();
-  var result = doPost(fakePayload);
-  Logger.log('Tiempo: ' + (Date.now() - t0) + 'ms');
-  Logger.log(result.getContent());
-}
-
-// === TEST LIST ===
-function testList() {
-  var fakeEvent = { parameter: { action: 'list', limit: 5 } };
-  var t0 = Date.now();
-  var result = doGet(fakeEvent);
-  Logger.log('Tiempo: ' + (Date.now() - t0) + 'ms');
-  Logger.log(result.getContent());
-}
-
 // ============================================================
-// SETUP DEL SHEET — look & feel La Fondiatta (one-shot)
+// SETUP DEL SHEET — one-shot, incluye columna X Monto
 // ============================================================
 function setupSheetFormat() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheets()[0];
   var lastRow = Math.max(sh.getLastRow(), 2);
-  var lastCol = 23;
+  var lastCol = 24; // ahora incluye col X
 
-  Logger.log('Empezando setup — ' + lastRow + ' filas');
+  Logger.log('Empezando setup v4.0 — ' + lastRow + ' filas');
 
   // 1. HEADER
   var headerRange = sh.getRange(1, 1, 1, lastCol);
@@ -294,8 +291,11 @@ function setupSheetFormat() {
     .setVerticalAlignment('middle');
   sh.setRowHeight(1, 36);
 
+  // Header de col X
+  sh.getRange(1, 24).setValue('Monto');
+
   // 2. DROPDOWNS
-  var estados = ['Pendiente de Enviar', 'En Seguimiento', 'Avanzado', 'Confirmado', 'Perdido'];
+  var estados = ['Pendiente de Enviar', 'En Seguimiento', 'Avanzado', 'Confirmado', 'Perdido', 'Cancelado'];
   sh.getRange(2, 4, lastRow - 1, 1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(estados, true).setAllowInvalid(true).build()
   );
@@ -316,16 +316,14 @@ function setupSheetFormat() {
     SpreadsheetApp.newDataValidation().requireValueInList(tiposEvento, true).setAllowInvalid(true).build()
   );
 
-  var ruleFecha = SpreadsheetApp.newDataValidation().requireDate().setAllowInvalid(true).build();
-  sh.getRange(2, 7, lastRow - 1, 3).setDataValidation(ruleFecha);
-
   // 3. CONDITIONAL FORMATTING en Estado
   var coloresEstado = [
-    { state: 'Confirmado',         bg: '#d4edda', fg: '#155724' },
-    { state: 'Avanzado',           bg: '#fff3cd', fg: '#856404' },
-    { state: 'En Seguimiento',     bg: '#cce5ff', fg: '#004085' },
-    { state: 'Pendiente de Enviar',bg: '#e2e3e5', fg: '#383d41' },
-    { state: 'Perdido',            bg: '#f8d7da', fg: '#721c24' }
+    { state: 'Confirmado',          bg: '#d4edda', fg: '#155724' },
+    { state: 'Avanzado',            bg: '#fff3cd', fg: '#856404' },
+    { state: 'En Seguimiento',      bg: '#cce5ff', fg: '#004085' },
+    { state: 'Pendiente de Enviar', bg: '#e2e3e5', fg: '#383d41' },
+    { state: 'Perdido',             bg: '#f8d7da', fg: '#721c24' },
+    { state: 'Cancelado',           bg: '#f0f0f0', fg: '#555555' }
   ];
   var existingRules = sh.getConditionalFormatRules();
   var keepRules = existingRules.filter(function(r) {
@@ -344,20 +342,25 @@ function setupSheetFormat() {
   });
   sh.setConditionalFormatRules(keepRules);
 
-  // 4. COLUMNA V (Internal ID) y W (Items JSON) discretas
+  // 4. Formato número para col X (Monto)
+  sh.getRange(2, 24, lastRow - 1, 1)
+    .setNumberFormat('$ #,##0');
+
+  // 5. Columnas internas discretas
   sh.setColumnWidth(22, 120);
   sh.setColumnWidth(23, 100);
+  sh.setColumnWidth(24, 130);
   sh.getRange(2, 22, lastRow - 1, 2)
     .setFontColor('#9aa0a6')
     .setFontFamily('Roboto Mono')
     .setFontSize(9);
   sh.getRange(1, 22, 1, 2).setFontSize(9);
 
-  // 5. FREEZE
+  // 6. FREEZE
   sh.setFrozenRows(1);
   sh.setFrozenColumns(2);
 
-  // 6. BANDING
+  // 7. BANDING
   sh.getBandings().forEach(function(b) { b.remove(); });
   var banding = sh.getRange(2, 1, lastRow - 1, lastCol)
     .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, false, false);
@@ -365,11 +368,63 @@ function setupSheetFormat() {
   banding.setFirstRowColor('#ffffff');
   banding.setSecondRowColor('#fbf9f4');
 
-  // 7. ANCHOS
-  var widths = {1:200,2:180,3:60,4:140,5:90,6:200,7:110,8:110,9:110,10:100,11:110,12:130,13:200,14:220,15:220,16:320,17:110,18:110,19:180,20:110,21:280,22:120,23:100};
+  // 8. ANCHOS
+  var widths = {
+    1:200, 2:180, 3:60, 4:140, 5:90, 6:200, 7:110, 8:110, 9:110,
+    10:100, 11:110, 12:130, 13:200, 14:220, 15:220, 16:320, 17:110,
+    18:110, 19:180, 20:110, 21:280, 22:120, 23:100, 24:130
+  };
   Object.keys(widths).forEach(function(col) {
     sh.setColumnWidth(parseInt(col, 10), widths[col]);
   });
 
-  Logger.log('✅ Setup completo.');
+  Logger.log('✅ Setup v4.0 completo — columna X (Monto) agregada.');
+}
+
+// === TESTS ===
+function test() {
+  Logger.log('1. Empezó');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log('2. Spreadsheet OK: ' + ss.getName());
+  var sh = ss.getSheets()[0];
+  Logger.log('3. Sheet OK: ' + sh.getName() + ', filas: ' + sh.getLastRow());
+  Logger.log('4. Fin');
+}
+
+function testPost() {
+  var fakePayload = {
+    postData: {
+      contents: JSON.stringify({
+        contacto: '🧪 TEST v4.0',
+        empresa: 'TEST SA',
+        pax: 50,
+        vendedor: 'Colo',
+        tipoEvento: 'Desayuno Corporativo',
+        fechaEvento: '01/05/2026',
+        telefono: '+54 11 1234-5678',
+        email: 'test@test.com',
+        nombreEvento: 'Prueba con Monto',
+        locacion: 'CABA',
+        detalle: 'Desayuno Premium x 50',
+        canal: 'Vendedor',
+        mes: 'mayo 26',
+        monto: 1500000,
+        observaciones: 'TOTAL s/IVA: $1.500.000',
+        presupuestoId: 'p_test_v4_123',
+        itemsJson: JSON.stringify([
+          {cat:'Corpo · Desayunos', name:'Desayuno Premium', price:30000, qty:50, unit:'persona'}
+        ])
+      })
+    }
+  };
+  var result = doPost(fakePayload);
+  Logger.log(result.getContent());
+}
+
+function testDashboard() {
+  var fakeEvent = { parameter: { action: 'dashboard' } };
+  var result = doGet(fakeEvent);
+  var parsed = JSON.parse(result.getContent());
+  Logger.log('Items: ' + parsed.items.length);
+  if (parsed.items.length > 0) Logger.log('Primero: ' + JSON.stringify(parsed.items[0]));
 }

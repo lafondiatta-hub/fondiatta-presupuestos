@@ -54,10 +54,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .sidebar header img{width:32px;height:32px;object-fit:contain}
 .sidebar header h1{font-family:'Organetto',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.12em;text-transform:uppercase}
 .sidebar header small{display:block;color:var(--fg-dim);font-size:10px;letter-spacing:0.1em;margin-top:2px;text-transform:uppercase}
-.sidebar header .header-actions{display:flex;gap:8px;flex-wrap:wrap}
+.sidebar header .header-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .sidebar header .header-actions button{
-  flex:1;
-  min-width:0;
   padding:8px 12px;
   border-radius:4px;
   font-family:'Organetto',sans-serif;
@@ -68,6 +66,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
   cursor:pointer;
   white-space:nowrap;
   transition:all .15s ease;
+  width:100%;
 }
 .sidebar header .btn-load-previo{
   background:transparent;
@@ -80,12 +79,19 @@ input,select,textarea{font-family:inherit;font-size:14px}
   background:rgba(244,239,230,0.05);
 }
 .sidebar header .btn-reset-top{
-  background:rgba(224,96,58,0.10);
-  color:var(--danger);
-  border:1px solid rgba(224,96,58,0.55);
+  grid-column:1 / -1;
+  background:transparent;
+  color:var(--fg-dim);
+  border:none;
+  font-size:8px;
+  opacity:0.5;
+  padding:4px 8px;
+  letter-spacing:0.15em;
 }
 .sidebar header .btn-reset-top:hover{
-  background:var(--danger);
+  opacity:1;
+  color:var(--danger);
+  background:transparent;
   color:#fff;
   border-color:var(--danger);
 }

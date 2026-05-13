@@ -962,7 +962,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
 <!-- html2pdf + html2canvas para export -->
 <!-- MODAL: Guía de staffing y viáticos -->
-<div class="modal-backdrop" id="staffing-modal" onclick="if(event.target===this)closeStaffingGuide()">
+<div class="modal-backdrop" id="staffing-modal" data-backdrop-close="closeStaffingGuide">
   <div class="modal-box">
     <button class="m-close-x" onclick="closeStaffingGuide()" aria-label="Cerrar">×</button>
     <h3>Guía de <em>staffing</em> y viáticos</h3>
@@ -1027,7 +1027,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 </div>
 
 <!-- MODAL: Cargar presupuesto previo -->
-<div class="modal-backdrop" id="previos-modal" onclick="if(event.target===this)cerrarModalPrevios()">
+<div class="modal-backdrop" id="previos-modal" data-backdrop-close="cerrarModalPrevios">
   <div class="modal-box" style="max-width:760px">
     <button class="m-close-x" onclick="cerrarModalPrevios()" aria-label="Cerrar">×</button>
     <h3>Cargar presupuesto <em>previo</em></h3>
@@ -1040,7 +1040,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 </div>
 
 <!-- MODAL: Subir PDF y registrar en Sheet -->
-<div class="modal-backdrop" id="pdf-modal" onclick="if(event.target===this)cerrarModalPdf()">
+<div class="modal-backdrop" id="pdf-modal" data-backdrop-close="cerrarModalPdf">
   <div class="modal-box" style="max-width:780px">
     <button class="m-close-x" onclick="cerrarModalPdf()" aria-label="Cerrar">×</button>
     <h3>Subir PDF a <em>seguimiento</em></h3>
@@ -1580,6 +1580,26 @@ searchInput.addEventListener('input', () => {
 document.addEventListener('click', e => {
   if (!e.target.closest('.search-wrap')) suggest.classList.remove('open');
 });
+
+// === MODAL BACKDROP CLOSE (mousedown-aware) ===
+// Evita que el modal se cierre cuando el usuario arrastra al seleccionar texto
+// adentro de un input/textarea y suelta el mouse fuera del recuadro.
+// Solo cierra si TANTO mousedown COMO mouseup ocurren sobre el backdrop.
+(function(){
+  let mdTarget = null;
+  document.addEventListener('mousedown', e => {
+    const bd = e.target.closest('.modal-backdrop[data-backdrop-close]');
+    mdTarget = (bd && e.target === bd) ? bd : null;
+  });
+  document.addEventListener('mouseup', e => {
+    if (mdTarget && e.target === mdTarget) {
+      const fnName = mdTarget.getAttribute('data-backdrop-close');
+      const fn = window[fnName];
+      if (typeof fn === 'function') fn();
+    }
+    mdTarget = null;
+  });
+})();
 
 // === ITEMS ===
 // Clasificador automático: asigna "tipo de servicio" según la categoría del item
@@ -2791,6 +2811,34 @@ updateSessionBadge();
 
 let _pdfExtracted = null;
 let _pdfFilename = '';
+let _pdfIdempotencyKey = '';
+
+const PDF_PENDING_KEY = 'lf_pdf_pending_v1';
+
+function generateIdempotencyKey() {
+  // UUID-ish suficientemente único para idempotencia.
+  return 'pdf-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function savePendingPdf(data, key, filename) {
+  try {
+    localStorage.setItem(PDF_PENDING_KEY, JSON.stringify({
+      data, idempotencyKey: key, filename, ts: Date.now()
+    }));
+  } catch (e) { /* quota / private mode — ignorar */ }
+}
+
+function loadPendingPdf() {
+  try {
+    const raw = localStorage.getItem(PDF_PENDING_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+
+function clearPendingPdf() {
+  try { localStorage.removeItem(PDF_PENDING_KEY); } catch (e) {}
+}
 
 function abrirModalPdf() {
   const modal = document.getElementById('pdf-modal');
@@ -2802,6 +2850,7 @@ function abrirModalPdf() {
   document.getElementById('pdf-preview-form').classList.remove('open');
   _pdfExtracted = null;
   _pdfFilename = '';
+  _pdfIdempotencyKey = '';
 
   // Drag & drop handlers
   const dz = document.getElementById('pdf-dropzone');
@@ -2814,6 +2863,37 @@ function abrirModalPdf() {
       handlePdfFile({ target: { files: e.dataTransfer.files } });
     }
   };
+
+  // Si hay un registro pendiente sin confirmar (ej: navegador se cerró
+  // mid-request), ofrecer recuperarlo en lugar de hacer subir el PDF de cero.
+  const pending = loadPendingPdf();
+  if (pending && pending.data) {
+    const cliente = (pending.data['Cliente / Empresa'] || pending.data['Contacto'] || 'sin nombre').slice(0, 40);
+    const minsAgo = Math.round((Date.now() - (pending.ts || 0)) / 60000);
+    setPdfStatus(
+      `⚠ Tenés un registro sin confirmar de "${cliente}" (hace ${minsAgo} min). ` +
+      `Tocá "Reintentar pendiente" para registrarlo, o subí un PDF nuevo para descartarlo.`,
+      'info'
+    );
+    const statusEl = document.getElementById('pdf-status');
+    const btn = document.createElement('button');
+    btn.textContent = 'Reintentar pendiente';
+    btn.className = 'pa-confirm';
+    btn.style.cssText = 'margin-top:10px;padding:8px 16px;font-size:11px';
+    btn.onclick = () => reintentarPendiente(pending);
+    statusEl.appendChild(document.createElement('br'));
+    statusEl.appendChild(btn);
+  }
+}
+
+async function reintentarPendiente(pending) {
+  _pdfFilename = pending.filename || 'pendiente.pdf';
+  _pdfIdempotencyKey = pending.idempotencyKey;
+  _pdfExtracted = pending.data;
+  fillPreviewForm(pending.data);
+  document.getElementById('pdf-preview-form').classList.add('open');
+  setPdfStatus('Reintentando registro pendiente…', 'info');
+  await confirmarRegistroPdf();
 }
 
 function cerrarModalPdf() {
@@ -2843,11 +2923,12 @@ async function handlePdfFile(e) {
   }
 
   _pdfFilename = file.name;
+  _pdfIdempotencyKey = generateIdempotencyKey();
   setPdfStatus(`Leyendo "${file.name}" (${(file.size/1024).toFixed(0)} KB)…`, 'info');
 
   try {
     const base64 = await fileToBase64(file);
-    setPdfStatus('Extrayendo datos con Gemini… (puede tardar 10–30 seg)', 'info');
+    setPdfStatus('Extrayendo datos con Gemini… (puede tardar 5–12 seg)', 'info');
     const res = await callPdfEndpoint({ filename: file.name, pdfBase64: base64, dryRun: true });
     if (!res.ok) throw new Error(res.error || 'Error desconocido');
     _pdfExtracted = res.data;
@@ -2886,6 +2967,28 @@ async function callPdfEndpoint(payload) {
   const text = await res.text();
   try { return JSON.parse(text); }
   catch { throw new Error('Respuesta no-JSON: ' + text.slice(0, 200)); }
+}
+
+// Retry con backoff exponencial. Como el server es idempotente con la
+// misma idempotencyKey, reintentar es 100% seguro: si el primer intento
+// llegó a escribir pero la respuesta se perdió, el segundo devuelve el
+// resultado guardado en cache sin duplicar.
+async function callPdfEndpointWithRetry(payload, maxAttempts) {
+  maxAttempts = maxAttempts || 3;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await callPdfEndpoint(payload);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        const waitMs = 1500 * attempt; // 1.5s, 3s
+        setPdfStatus(`Reintentando (${attempt}/${maxAttempts - 1})…`, 'info');
+        await new Promise(r => setTimeout(r, waitMs));
+      }
+    }
+  }
+  throw lastErr;
 }
 
 function fillPreviewForm(d) {
@@ -2940,19 +3043,29 @@ async function confirmarRegistroPdf() {
   btn.disabled = true;
   setPdfStatus('Registrando en la Sheet…', 'info');
 
+  const confirmedData = readPreviewForm();
+  if (!_pdfIdempotencyKey) _pdfIdempotencyKey = generateIdempotencyKey();
+  // Backup en localStorage por si el navegador se cierra / falla red en medio
+  savePendingPdf(confirmedData, _pdfIdempotencyKey, _pdfFilename);
+
   try {
-    const confirmedData = readPreviewForm();
-    const res = await callPdfEndpoint({
+    const res = await callPdfEndpointWithRetry({
       filename: _pdfFilename,
       confirmedData,
+      idempotencyKey: _pdfIdempotencyKey,
       dryRun: false
     });
     if (!res.ok) throw new Error(res.error || 'Error desconocido');
-    setPdfStatus(`✅ Registrado como ${res.data['ID Presupuesto']} en fila ${res.row}.`, 'ok');
+    const tag = res.mode === 'idempotent_hit' ? ' (ya estaba registrado)' : '';
+    setPdfStatus(`✅ Registrado como ${res.data['ID Presupuesto']} en fila ${res.row}${tag}.`, 'ok');
+    clearPendingPdf();
     setTimeout(() => cerrarModalPdf(), 1800);
   } catch (err) {
     console.error(err);
-    setPdfStatus('No se pudo registrar: ' + err.message, 'error');
+    setPdfStatus(
+      'No se pudo registrar: ' + err.message + '. Tus datos quedan guardados — reabrí "Subir PDF" para reintentar.',
+      'error'
+    );
     btn.disabled = false;
   }
 }

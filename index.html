@@ -109,10 +109,20 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 /* === ITEM PICKER === */
-.search-wrap{position:relative}
-.search-wrap input{padding-left:34px}
-.search-wrap::before{content:'';position:absolute;left:11px;top:50%;transform:translateY(-50%);width:14px;height:14px;border:1.5px solid var(--fg-dim);border-radius:50%;pointer-events:none}
-.search-wrap::after{content:'';position:absolute;left:22px;top:calc(50% + 4px);width:6px;height:1.5px;background:var(--fg-dim);transform:rotate(45deg);pointer-events:none}
+.search-wrap{position:relative;transition:all .25s ease}
+.search-wrap input{padding-left:34px;transition:all .25s ease}
+.search-wrap::before{content:'';position:absolute;left:11px;top:50%;transform:translateY(-50%);width:14px;height:14px;border:1.5px solid var(--fg-dim);border-radius:50%;pointer-events:none;transition:all .25s ease}
+.search-wrap::after{content:'';position:absolute;left:22px;top:calc(50% + 4px);width:6px;height:1.5px;background:var(--fg-dim);transform:rotate(45deg);pointer-events:none;transition:all .25s ease}
+/* Hero state — cuando no hay items todavía, el buscador es la acción primaria */
+.items-wrap.no-items .search-prelabel{display:block}
+.search-prelabel{display:none;font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--fg-dim);margin-bottom:10px;line-height:1.4}
+.search-prelabel em{font-family:'Perfectly',serif;font-style:italic;font-weight:400;letter-spacing:0;text-transform:none;font-size:11px;color:var(--fg)}
+.items-wrap.no-items .search-wrap input{padding:16px 14px 16px 38px;font-size:13.5px;border-color:var(--fg-dim);letter-spacing:0.01em}
+.items-wrap.no-items .search-wrap::before{left:13px;width:14px;height:14px;border-width:1.7px}
+.items-wrap.no-items .search-wrap::after{left:24px;top:calc(50% + 4px);width:6px;height:1.6px}
+.items-wrap.no-items .search-wrap input:focus{border-color:var(--fg)}
+.items-wrap.no-items .add-custom{font-size:11px;padding:8px 10px;opacity:.78}
+.items-wrap.no-items .add-custom:hover{opacity:1}
 .suggest{position:absolute;top:100%;left:0;right:0;background:#0a0a0a;border:1px solid var(--border);border-top:none;max-height:340px;overflow-y:auto;z-index:50;border-radius:0 0 4px 4px;display:none}
 .suggest.open{display:block}
 .suggest .cat{padding:8px 12px;font-family:'Organetto',sans-serif;font-size:9px;letter-spacing:0.15em;text-transform:uppercase;color:var(--fg-dim);background:#141414;border-bottom:1px solid var(--border);position:sticky;top:0}
@@ -742,13 +752,16 @@ input,select,textarea{font-family:inherit;font-size:14px}
         </div>
       </div>
 
-      <div class="search-wrap">
-        <input id="f-search" placeholder="Buscar: asado, picada, desayuno, flete pilar, viáticos..." autocomplete="off">
-        <div id="suggest" class="suggest"></div>
+      <div id="items-wrap" class="items-wrap no-items">
+        <div class="search-prelabel">Empezá cargando los items <em>que vas a cotizar</em></div>
+        <div class="search-wrap">
+          <input id="f-search" placeholder="Buscá en el catálogo" autocomplete="off">
+          <div id="suggest" class="suggest"></div>
+        </div>
+        <div id="items-list" class="items"></div>
+        <button class="add-custom" onclick="addCustomItem()">+ Agregar ítem personalizado</button>
+        <button class="add-custom" onclick="openStaffingGuide()" style="margin-top:6px;font-size:11px">📋 Ver guía de staffing y viáticos</button>
       </div>
-      <div id="items-list" class="items"></div>
-      <button class="add-custom" onclick="addCustomItem()">+ Agregar ítem personalizado</button>
-      <button class="add-custom" onclick="openStaffingGuide()" style="margin-top:6px;font-size:11px">📋 Ver guía de staffing y viáticos</button>
     </div>
 
     <!-- DESCUENTO -->
@@ -1663,6 +1676,8 @@ function updateItem(id, field, val) {
 
 function renderItems() {
   const container = document.getElementById('items-list');
+  const wrap = document.getElementById('items-wrap');
+  if (wrap) wrap.classList.toggle('no-items', !items.length);
   if (!items.length) { container.innerHTML = ''; return; }
   // Detectar si estamos en modo manual para ocultar campos de precio/qty
   const precioMode = (document.getElementById('f-precio-mode') || {}).value;

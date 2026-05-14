@@ -1125,7 +1125,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
     <div class="lead-input" data-lead-panel="image">
       <div class="pdf-dropzone" id="img-dropzone" onclick="document.getElementById('img-file-input').click()">
         <div class="pd-icon">🖼</div>
-        <div class="pd-title">Arrastrá una imagen acá o tocá para elegir</div>
+        <div class="pd-title">Arrastrá una imagen, tocá para elegir o pegá con ⌘V</div>
         <div class="pd-sub">JPG, PNG, WEBP · Máx 15 MB · Sirve screenshot de mail, WhatsApp, propuesta o foto</div>
         <input type="file" id="img-file-input" accept="image/*" onchange="handleImageFile(event)">
       </div>
@@ -2920,6 +2920,7 @@ let _pdfCalendarEventUrl = '';   // evento Calendar linkeado/creado
 let _pdfCalendarEventTitle = ''; // título del evento linkeado (para mostrar)
 let _pdfCalendarLastSearch = null; // último resultado de searchCalendar (para no repetir)
 let _pdfCalendarChoice = 'pending'; // 'pending' | 'linked' | 'posible' | 'none' — fuerza decisión antes de registrar
+let _leadPasteListener = null;
 
 const PDF_PENDING_KEY = 'lf_pdf_pending_v1';
 
@@ -2987,6 +2988,28 @@ function abrirModalPdf() {
     }
   };
 
+  // Paste con Cmd/Ctrl+V — soporta imagen del clipboard (típico Cmd+Shift+4 en Mac).
+  // Solo activo mientras el modal está abierto; el listener se desmonta en cerrarModalPdf.
+  _leadPasteListener = (e) => {
+    if (!document.getElementById('pdf-modal').classList.contains('open')) return;
+    // No interferir si el usuario está pegando texto en el textarea del tab "Texto"
+    if (e.target && e.target.id === 'lead-text-input') return;
+    const items = (e.clipboardData || {}).items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          switchLeadTab('image');
+          handleImageFile({ target: { files: [file] } });
+        }
+        return;
+      }
+    }
+  };
+  document.addEventListener('paste', _leadPasteListener);
+
   // Si hay un registro pendiente sin confirmar (ej: navegador se cerró
   // mid-request), ofrecer recuperarlo en lugar de hacer subir el PDF de cero.
   const pending = loadPendingPdf();
@@ -3021,6 +3044,10 @@ async function reintentarPendiente(pending) {
 
 function cerrarModalPdf() {
   document.getElementById('pdf-modal').classList.remove('open');
+  if (_leadPasteListener) {
+    document.removeEventListener('paste', _leadPasteListener);
+    _leadPasteListener = null;
+  }
 }
 
 function setPdfStatus(msg, kind) {

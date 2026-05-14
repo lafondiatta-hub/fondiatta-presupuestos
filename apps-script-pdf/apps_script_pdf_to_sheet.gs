@@ -325,17 +325,27 @@ function todayDDMMYYYY() {
 //     Si falla, devuelve null y el frontend muestra el botón deshabilitado.
 
 function ensurePosiblesCalendar() {
+  // El Calendar "LF Posibles" vive en la cuenta lafondiatta@gmail.com y se
+  // comparte a la cuenta personal de Santi con permiso de escritura. El ID
+  // se setea a mano en Script Properties como POSIBLES_CALENDAR_ID — NO se
+  // autocrea desde acá para que nunca quede en la cuenta personal por error.
   const props = PropertiesService.getScriptProperties();
   const stored = props.getProperty('POSIBLES_CALENDAR_ID');
-  if (stored) {
-    const cal = CalendarApp.getCalendarById(stored);
-    if (cal) return cal;
-    // Si el ID guardado ya no existe (cal borrado), lo recreamos.
+  if (!stored) {
+    throw new Error(
+      'Falta setear POSIBLES_CALENDAR_ID en Script Properties. ' +
+      'Crear un Calendar "LF Posibles" en lafondiatta@gmail.com, ' +
+      'compartirlo a santiagocambaceres@gmail.com con "Hacer cambios en los eventos", ' +
+      'y pegar el Calendar ID en la property.'
+    );
   }
-  const cal = CalendarApp.createCalendar(POSIBLES_CALENDAR_NAME, {
-    summary: 'Presupuestos cargados como evento POSIBLE desde el cotizador LF.'
-  });
-  props.setProperty('POSIBLES_CALENDAR_ID', cal.getId());
+  const cal = CalendarApp.getCalendarById(stored);
+  if (!cal) {
+    throw new Error(
+      'POSIBLES_CALENDAR_ID está seteado (' + stored + ') pero no se accede al calendar. ' +
+      'Verificar que lafondiatta@gmail.com compartió el calendar con permisos de escritura.'
+    );
+  }
   return cal;
 }
 

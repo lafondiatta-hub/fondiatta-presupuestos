@@ -526,7 +526,40 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .pdf-preview-form input,.pdf-preview-form textarea,.pdf-preview-form select{padding:8px 10px;background:#0a0a0a;border:1px solid var(--border);color:var(--fg);border-radius:4px;font-family:'NeueHaas',sans-serif;font-size:12px;outline:none;transition:border-color .15s}
 .pdf-preview-form input:focus,.pdf-preview-form textarea:focus,.pdf-preview-form select:focus{border-color:var(--fg-dim)}
 .pdf-preview-form textarea{resize:vertical;min-height:50px;font-family:'NeueHaas',sans-serif}
-.pdf-actions{display:flex;gap:10px;margin-top:18px}
+
+/* === Sección Calendar (match + POSIBLES) === */
+.pf-cal{margin-top:6px;padding:14px 16px;border:1px solid var(--border);border-radius:6px;background:#0a0a0a}
+.pf-cal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.pf-cal-title{font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--fg);font-weight:700}
+.pf-cal-status{font-family:'NeueHaas',sans-serif;font-size:11px;color:var(--fg-dim)}
+.pf-cal-status.loading{color:#9b9}
+.pf-cal-status.error{color:#c88}
+.pf-cal-warn{padding:8px 12px;border-left:3px solid #d4a449;background:#2a2412;color:#f4efe6;font-size:12px;border-radius:3px;margin-bottom:10px;line-height:1.45}
+.pf-cal-warn strong{color:#f0c878}
+.pf-cal-list{display:flex;flex-direction:column;gap:6px;margin:6px 0 10px}
+.pf-cal-opt{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:border-color .15s,background .15s}
+.pf-cal-opt:hover{border-color:var(--fg-dim);background:#111}
+.pf-cal-opt.selected{border-color:var(--fg);background:#161616}
+.pf-cal-opt input[type=radio]{margin-top:3px;cursor:pointer;accent-color:#6b9bd1}
+.pf-cal-opt-body{flex:1;display:flex;flex-direction:column;gap:2px}
+.pf-cal-opt-title{font-family:'NeueHaas',sans-serif;font-size:12px;color:var(--fg);font-weight:600}
+.pf-cal-opt-meta{font-family:'NeueHaas',sans-serif;font-size:10px;color:var(--fg-dim);letter-spacing:0.04em}
+.pf-cal-opt-tag{display:inline-block;padding:1px 6px;border-radius:3px;background:#1a1a1a;color:var(--fg-dim);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;margin-right:4px}
+.pf-cal-opt-tag.same-day{background:#3a2c14;color:#f0c878}
+.pf-cal-opt-tag.posible{background:#1a2a44;color:#6b9bd1}
+.pf-cal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.pf-cal-btn{padding:8px 14px;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:4px;font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;cursor:pointer;transition:all .15s}
+.pf-cal-btn:hover:not(:disabled){border-color:var(--fg-dim);background:#111}
+.pf-cal-btn:disabled{opacity:.35;cursor:not-allowed}
+.pf-cal-btn.primary{background:#1a2a44;color:#a8c6e8;border-color:#2a3a54}
+.pf-cal-btn.primary:hover:not(:disabled){background:#243657;border-color:#3a4a64}
+.pf-cal-confirmed{padding:8px 12px;border-left:3px solid #4a9b4a;background:#142a14;color:#f4efe6;font-size:12px;border-radius:3px;margin-top:6px;line-height:1.4}
+.pf-cal-confirmed a{color:#a8d8a8;text-decoration:underline}
+.pf-cal-empty{font-family:'NeueHaas',sans-serif;font-size:12px;color:var(--fg-dim);font-style:italic;padding:4px 0}
+.pf-cal-suggest{padding:10px 14px;border-left:3px solid #4a9b4a;background:#142a14;color:#f4efe6;font-size:12px;border-radius:3px;margin:10px 0 4px;line-height:1.5}
+.pf-cal-suggest strong{color:#a8d8a8}
+.pf-confirm-hint{display:none;font-family:'NeueHaas',sans-serif;font-size:11px;color:#d4a449;padding:8px 12px;border-left:3px solid #d4a449;background:#2a2412;border-radius:3px;margin-top:14px}
+.pdf-actions{display:flex;gap:10px;margin-top:12px}
 .pdf-actions button{flex:1;padding:12px 18px;border-radius:4px;font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;cursor:pointer;border:1px solid var(--border);transition:all .15s}
 .pdf-actions .pa-cancel{background:transparent;color:var(--fg-dim)}
 .pdf-actions .pa-cancel:hover{color:var(--fg);border-color:var(--fg-dim)}
@@ -1117,6 +1150,23 @@ input,select,textarea{font-family:inherit;font-size:14px}
         </div>
         <div class="pf-field full"><label>Observaciones</label><textarea id="pf-observaciones"></textarea></div>
       </div>
+
+      <div class="pf-cal" id="pf-cal">
+        <div class="pf-cal-head">
+          <div class="pf-cal-title">📅 Calendar · match y seguimiento</div>
+          <div class="pf-cal-status" id="pf-cal-status">Buscando eventos…</div>
+        </div>
+        <div id="pf-cal-warn"></div>
+        <div id="pf-cal-options"></div>
+        <div id="pf-cal-suggest"></div>
+        <div class="pf-cal-actions">
+          <button class="pf-cal-btn primary" id="pf-cal-create-btn" type="button" onclick="crearPosibleEvent()">📅 Agendar como POSIBLE en LF Posibles</button>
+          <button class="pf-cal-btn" type="button" onclick="refreshCalendarMatches()">↻ Reintentar búsqueda</button>
+        </div>
+        <div id="pf-cal-confirmed"></div>
+      </div>
+
+      <div id="pf-confirm-hint" class="pf-confirm-hint"></div>
       <div class="pdf-actions">
         <button class="pa-cancel" onclick="cerrarModalPdf()">Cancelar</button>
         <button class="pa-confirm" id="pf-confirm-btn" onclick="confirmarRegistroPdf()">Registrar en Sheet</button>
@@ -2827,6 +2877,10 @@ updateSessionBadge();
 let _pdfExtracted = null;
 let _pdfFilename = '';
 let _pdfIdempotencyKey = '';
+let _pdfCalendarEventUrl = '';   // evento Calendar linkeado/creado
+let _pdfCalendarEventTitle = ''; // título del evento linkeado (para mostrar)
+let _pdfCalendarLastSearch = null; // último resultado de searchCalendar (para no repetir)
+let _pdfCalendarChoice = 'pending'; // 'pending' | 'linked' | 'posible' | 'none' — fuerza decisión antes de registrar
 
 const PDF_PENDING_KEY = 'lf_pdf_pending_v1';
 
@@ -2866,6 +2920,7 @@ function abrirModalPdf() {
   _pdfExtracted = null;
   _pdfFilename = '';
   _pdfIdempotencyKey = '';
+  resetCalendarSection();
 
   // Drag & drop handlers
   const dz = document.getElementById('pdf-dropzone');
@@ -2950,6 +3005,8 @@ async function handlePdfFile(e) {
     fillPreviewForm(res.data);
     document.getElementById('pdf-preview-form').classList.add('open');
     setPdfStatus('Datos extraídos. Revisá y editá lo que haga falta antes de registrar.', 'ok');
+    // Disparar búsqueda en Calendar en background — no bloquea el flujo.
+    refreshCalendarMatches();
   } catch (err) {
     console.error(err);
     setPdfStatus('No se pudo extraer datos del PDF: ' + err.message, 'error');
@@ -3068,6 +3125,7 @@ async function confirmarRegistroPdf() {
       filename: _pdfFilename,
       confirmedData,
       idempotencyKey: _pdfIdempotencyKey,
+      calendarEventUrl: _pdfCalendarEventUrl || '',
       dryRun: false
     });
     if (!res.ok) throw new Error(res.error || 'Error desconocido');
@@ -3084,6 +3142,314 @@ async function confirmarRegistroPdf() {
     btn.disabled = false;
   }
 }
+
+// ==================================================================
+// === CALENDAR · match + crear POSIBLES ============================
+// ==================================================================
+//
+// Flujo:
+//   1. fillPreviewForm() abre el modal y llama refreshCalendarMatches()
+//   2. refreshCalendarMatches() pega al backend con fechaEvento + cliente
+//      y renderiza el resultado (warning de same-day + lista clickeable)
+//   3. Usuario elige un evento existente (radio) o aprieta
+//      "Agendar como POSIBLE" → crearPosibleEvent() crea el POSIBLE en
+//      LF Posibles y queda preseleccionado
+//   4. Al confirmar el alta, el URL elegido se manda al backend y queda
+//      en la columna "Se agendo en Calendar?" de la Sheet
+
+function resetCalendarSection() {
+  _pdfCalendarEventUrl = '';
+  _pdfCalendarEventTitle = '';
+  _pdfCalendarLastSearch = null;
+  _pdfCalendarChoice = 'pending';
+  const sec = document.getElementById('pf-cal');
+  if (!sec) return;
+  document.getElementById('pf-cal-status').textContent = '';
+  document.getElementById('pf-cal-status').className = 'pf-cal-status';
+  document.getElementById('pf-cal-warn').innerHTML = '';
+  document.getElementById('pf-cal-options').innerHTML = '';
+  document.getElementById('pf-cal-confirmed').innerHTML = '';
+  document.getElementById('pf-cal-suggest').innerHTML = '';
+  const btn = document.getElementById('pf-cal-create-btn');
+  if (btn) { btn.disabled = false; btn.textContent = '📅 Agendar como POSIBLE en LF Posibles'; }
+  applyChoiceLock();
+}
+
+// Habilita/deshabilita el botón "Registrar en Sheet" según _pdfCalendarChoice.
+// Mientras la elección esté pending, el usuario NO puede registrar — fuerza
+// que decida activamente si linkea, agenda como POSIBLE, o registra sin Calendar.
+function applyChoiceLock() {
+  const btn = document.getElementById('pf-confirm-btn');
+  const hint = document.getElementById('pf-confirm-hint');
+  if (!btn || !hint) return;
+  if (_pdfCalendarChoice === 'pending') {
+    btn.disabled = true;
+    hint.textContent = 'Decidí arriba qué hacer con el seguimiento en Calendar antes de registrar.';
+    hint.style.display = 'block';
+  } else {
+    btn.disabled = false;
+    hint.textContent = '';
+    hint.style.display = 'none';
+  }
+}
+
+// Banner sugerente (A): aparece cuando no hay match y el usuario no eligió
+// nada todavía. Empuja explícitamente a agendar como POSIBLE.
+function renderSuggestBanner(show) {
+  const el = document.getElementById('pf-cal-suggest');
+  if (!el) return;
+  if (!show) { el.innerHTML = ''; return; }
+  el.innerHTML =
+    '<div class="pf-cal-suggest">' +
+    '<strong>💡 Este presupuesto no está agendado todavía.</strong> ' +
+    'Agendalo como <strong>POSIBLE</strong> para tenerlo visible en Calendar y no perder el seguimiento del lead.' +
+    '</div>';
+}
+
+async function refreshCalendarMatches() {
+  const fechaEvento = (document.getElementById('pf-fecha-evento').value || '').trim();
+  const cliente = (document.getElementById('pf-empresa').value || '').trim();
+
+  const statusEl = document.getElementById('pf-cal-status');
+  const warnEl = document.getElementById('pf-cal-warn');
+  const optsEl = document.getElementById('pf-cal-options');
+  const createBtn = document.getElementById('pf-cal-create-btn');
+
+  warnEl.innerHTML = '';
+  optsEl.innerHTML = '';
+  document.getElementById('pf-cal-confirmed').innerHTML = '';
+  document.getElementById('pf-cal-suggest').innerHTML = '';
+  _pdfCalendarChoice = 'pending';
+  _pdfCalendarEventUrl = '';
+  _pdfCalendarEventTitle = '';
+  applyChoiceLock();
+
+  if (!fechaEvento) {
+    statusEl.textContent = 'Sin fecha del evento — no puedo agendar como POSIBLE hasta tenerla.';
+    statusEl.className = 'pf-cal-status';
+    createBtn.disabled = true;
+    createBtn.title = 'Cargá la "Fecha Evento" arriba para poder agendar.';
+    // Igual ofrecemos elegir "registrar sin Calendar" para no bloquear
+    renderNoneOption(optsEl, 'No se puede buscar eventos sin fecha. Podés registrar sin Calendar.');
+    return;
+  }
+
+  statusEl.textContent = 'Buscando eventos en tus calendarios…';
+  statusEl.className = 'pf-cal-status loading';
+  createBtn.disabled = true;
+  createBtn.title = '';
+
+  try {
+    const res = await callPdfEndpoint({
+      action: 'searchCalendar',
+      fechaEvento,
+      cliente
+    });
+    if (!res.ok) throw new Error(res.error || 'Error en searchCalendar');
+    const r = res.result;
+    _pdfCalendarLastSearch = r;
+
+    if (!r.ok && r.reason === 'fecha_no_parseada') {
+      statusEl.textContent = `No pude entender la fecha "${r.fechaEvento}". Editá el campo y volvé a buscar, o agendá manualmente.`;
+      statusEl.className = 'pf-cal-status error';
+      createBtn.disabled = true;
+      createBtn.title = 'No se pudo parsear la fecha del evento.';
+      renderNoneOption(optsEl, 'Fecha no detectada. Podés registrar sin Calendar.');
+      return;
+    }
+
+    createBtn.disabled = false;
+    renderCalendarResult(r);
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Error consultando Calendar: ' + err.message;
+    statusEl.className = 'pf-cal-status error';
+    createBtn.disabled = false; // se permite intentar crear igual
+    renderNoneOption(optsEl, 'No pudimos consultar Calendar. Podés agendar POSIBLE o registrar sin Calendar.');
+  }
+}
+
+// Render aislado del radio "Ninguno" para casos sin búsqueda (sin fecha o con error)
+function renderNoneOption(optsEl, helpText) {
+  optsEl.innerHTML =
+    `<div class="pf-cal-empty">${escapeHtml(helpText)}</div>` +
+    '<label class="pf-cal-opt" data-idx="-1">' +
+    '<input type="radio" name="pf-cal-pick" value="-1" onchange="onCalendarPick(-1)">' +
+    '<div class="pf-cal-opt-body">' +
+    '<div class="pf-cal-opt-title">— Ninguno (registrar sin Calendar)</div>' +
+    '<div class="pf-cal-opt-meta">El presupuesto se registra sin link a Calendar.</div>' +
+    '</div>' +
+    '</label>';
+  window._pdfCalItems = [];
+}
+
+function renderCalendarResult(r) {
+  const statusEl = document.getElementById('pf-cal-status');
+  const warnEl = document.getElementById('pf-cal-warn');
+  const optsEl = document.getElementById('pf-cal-options');
+  const createBtn = document.getElementById('pf-cal-create-btn');
+
+  const sameDay = r.sameDayEvents || [];
+  const nearby = r.nearbyEvents || [];
+
+  statusEl.textContent = `Buscado en tu Calendar para el ${r.dateLabel}.`;
+  statusEl.className = 'pf-cal-status';
+
+  // Warning si hay otros eventos el mismo día
+  if (sameDay.length > 0) {
+    const n = sameDay.length;
+    warnEl.innerHTML =
+      '<div class="pf-cal-warn">' +
+      `<strong>⚠ Ese día (${escapeHtml(r.dateLabel)}) ya tenés ${n} evento${n === 1 ? '' : 's'} en tus calendarios.</strong> ` +
+      'Revisalos antes de confirmar nuevos compromisos.' +
+      '</div>';
+  }
+
+  // Si ya hay un POSIBLE creado para este cliente+fecha, auto-linkearlo
+  if (r.posibleExisting) {
+    selectCalendarMatch(r.posibleExisting.url, r.posibleExisting.title, true, 'posible');
+    createBtn.disabled = true;
+    createBtn.textContent = '✓ Ya existe un POSIBLE para este cliente';
+  }
+
+  // Banner sugerente (A): solo si NO hay match same-day, NO hay POSIBLE
+  // existente, y el usuario todavía no eligió nada.
+  const noMatches = (sameDay.length === 0);
+  const showSuggest = noMatches && !r.posibleExisting && _pdfCalendarChoice === 'pending';
+  renderSuggestBanner(showSuggest);
+
+  // Render lista (same day primero, después nearby)
+  const items = sameDay.concat(nearby);
+  if (items.length === 0) {
+    optsEl.innerHTML = '<div class="pf-cal-empty">No hay eventos cercanos en tus calendarios. Podés agendar como POSIBLE para seguimiento.</div>';
+    return;
+  }
+
+  const radios = items.map((it, idx) => {
+    const tagSameDay = it.sameDay ? '<span class="pf-cal-opt-tag same-day">Mismo día</span>' : '';
+    const tagPosible = it.isPosible ? '<span class="pf-cal-opt-tag posible">POSIBLE</span>' : '';
+    const startLbl = it.allDay ? 'Todo el día' : formatHora(it.start);
+    return (
+      `<label class="pf-cal-opt" data-idx="${idx}">` +
+      `<input type="radio" name="pf-cal-pick" value="${idx}" onchange="onCalendarPick(${idx})">` +
+      '<div class="pf-cal-opt-body">' +
+      `<div class="pf-cal-opt-title">${tagSameDay}${tagPosible}${escapeHtml(it.title || '(sin título)')}</div>` +
+      `<div class="pf-cal-opt-meta">${escapeHtml(it.calendar)} · ${escapeHtml(startLbl)}</div>` +
+      '</div>' +
+      '</label>'
+    );
+  });
+
+  const noneRadio =
+    '<label class="pf-cal-opt" data-idx="-1">' +
+    '<input type="radio" name="pf-cal-pick" value="-1" onchange="onCalendarPick(-1)">' +
+    '<div class="pf-cal-opt-body">' +
+    '<div class="pf-cal-opt-title">— Ninguno (no linkear)</div>' +
+    '<div class="pf-cal-opt-meta">El presupuesto se registra sin link a Calendar.</div>' +
+    '</div>' +
+    '</label>';
+
+  optsEl.innerHTML = radios.join('') + noneRadio;
+  // guardamos los items en una variable global para poder leerlos al elegir
+  window._pdfCalItems = items;
+
+  // Si auto-seleccionamos un POSIBLE existente, marcar el radio correspondiente
+  if (r.posibleExisting) {
+    const idx = items.findIndex(it => it.eventId === r.posibleExisting.eventId);
+    if (idx >= 0) {
+      const radio = optsEl.querySelector(`input[value="${idx}"]`);
+      if (radio) { radio.checked = true; markSelectedOpt(idx); }
+    }
+  }
+}
+
+function onCalendarPick(idx) {
+  const items = window._pdfCalItems || [];
+  markSelectedOpt(idx);
+  if (idx === -1 || idx === '-1') {
+    _pdfCalendarEventUrl = '';
+    _pdfCalendarEventTitle = '';
+    _pdfCalendarChoice = 'none';
+    document.getElementById('pf-cal-confirmed').innerHTML =
+      '<div class="pf-cal-confirmed" style="border-left-color:#888;background:#1a1a1a;color:var(--fg-dim)">Sin link a Calendar — el presupuesto se registra igual.</div>';
+    renderSuggestBanner(false);
+    applyChoiceLock();
+    return;
+  }
+  const it = items[idx];
+  if (!it) return;
+  // Si eligió un POSIBLE existente del Calendar Posibles, marcamos como 'posible'
+  const choiceKind = it.isPosible ? 'posible' : 'linked';
+  selectCalendarMatch(it.url, it.title, false, choiceKind);
+}
+
+function markSelectedOpt(idx) {
+  document.querySelectorAll('.pf-cal-opt').forEach(el => {
+    el.classList.toggle('selected', el.getAttribute('data-idx') === String(idx));
+  });
+}
+
+function selectCalendarMatch(url, title, autoSelected, choiceKind) {
+  _pdfCalendarEventUrl = url;
+  _pdfCalendarEventTitle = title;
+  _pdfCalendarChoice = choiceKind || 'linked';
+  const tag = autoSelected ? '✓ POSIBLE existente detectado · linkeado al presupuesto' : '✓ Linkeado al presupuesto';
+  document.getElementById('pf-cal-confirmed').innerHTML =
+    `<div class="pf-cal-confirmed">${tag}: <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(title)}</a></div>`;
+  renderSuggestBanner(false);
+  applyChoiceLock();
+}
+
+async function crearPosibleEvent() {
+  const fechaEvento = (document.getElementById('pf-fecha-evento').value || '').trim();
+  const cliente = (document.getElementById('pf-empresa').value || 'Sin cliente').trim();
+  const pax = (document.getElementById('pf-pax').value || '').trim();
+
+  if (!fechaEvento) {
+    alert('Cargá la "Fecha Evento" antes de agendar.');
+    return;
+  }
+
+  const btn = document.getElementById('pf-cal-create-btn');
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = 'Creando…';
+
+  try {
+    const res = await callPdfEndpoint({
+      action: 'createPosibleEvent',
+      fechaEvento,
+      cliente,
+      pax
+    });
+    if (!res.ok) throw new Error(res.error || 'Error en createPosibleEvent');
+    const ev = res.event;
+    selectCalendarMatch(ev.url, ev.title, false, 'posible');
+    btn.textContent = ev.alreadyExisted ? '✓ Reutilizado POSIBLE existente' : '✓ POSIBLE creado en LF Posibles';
+    // Refrescamos la lista para reflejar que ahora existe (sin resetear el choice,
+    // refreshCalendarMatches lo va a re-pickear como posibleExisting).
+    setTimeout(() => { btn.textContent = originalText; refreshCalendarMatches(); }, 1500);
+  } catch (err) {
+    console.error(err);
+    btn.textContent = originalText;
+    btn.disabled = false;
+    alert('No se pudo crear el evento POSIBLE: ' + err.message);
+  }
+}
+
+function formatHora(iso) {
+  try {
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  } catch (e) { return iso; }
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
 </script>
 </body>
 </html>

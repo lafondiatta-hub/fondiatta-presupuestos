@@ -85,9 +85,9 @@ function doPost(e) {
       return jsonResponse(registrarConfirmado(body.confirmedData, body.idempotencyKey, body.calendarEventUrl));
     }
 
-    // Caso 2: extracción inicial desde el PDF (preview)
-    if (!body.pdfBase64) throw new Error('Falta pdfBase64');
-    const extracted = extractFromPdf(body.pdfBase64, body.filename || 'presupuesto.pdf');
+    // Caso 2: extracción inicial desde input (PDF / imagen / texto libre)
+    const input = resolveInput(body);
+    const extracted = extractFromInput(input);
     return jsonResponse({ ok: true, data: extracted, mode: 'preview' });
   } catch (err) {
     return jsonResponse({ ok: false, error: err.message, stack: err.stack });
@@ -154,18 +154,56 @@ function registrarConfirmado(confirmedData, idempotencyKey, calendarEventUrl) {
 // Gemini extraction (con responseSchema → más rápido y predecible)
 // ==================================================================
 
-function extractFromPdf(pdfBase64, filename) {
+/**
+ * Resuelve el input desde el body del request a un descriptor uniforme:
+ *   { kind: 'pdf'|'image'|'text', base64?, mimeType?, content?, filename }
+ * Mantiene compat con el frontend viejo que mandaba { pdfBase64, filename }.
+ */
+function resolveInput(body) {
+  // Texto libre (lead pegado al toque)
+  if (body.text && String(body.text).trim()) {
+    return {
+      kind: 'text',
+      content: String(body.text).trim(),
+      filename: body.filename || 'lead-texto.txt'
+    };
+  }
+  // Imagen (JPG, PNG, WEBP, etc — screenshot de mail/WhatsApp)
+  if (body.imageBase64) {
+    return {
+      kind: 'image',
+      base64: body.imageBase64,
+      mimeType: body.mimeType || 'image/jpeg',
+      filename: body.filename || 'lead-imagen.jpg'
+    };
+  }
+  // PDF (compat con frontend viejo)
+  if (body.pdfBase64) {
+    return {
+      kind: 'pdf',
+      base64: body.pdfBase64,
+      mimeType: 'application/pdf',
+      filename: body.filename || 'lead.pdf'
+    };
+  }
+  throw new Error('Falta input: enviá pdfBase64, imageBase64 o text');
+}
+
+function extractFromInput(input) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error('Falta GEMINI_API_KEY en Script Properties');
 
-  const prompt = buildPrompt();
+  const prompt = buildPrompt(input.kind);
+
+  // El primer "part" depende del tipo: archivo binario o texto plano.
+  const firstPart = input.kind === 'text'
+    ? { text: 'Lead recibido (texto libre, puede venir de mail/WhatsApp/notas):\n\n' + input.content }
+    : { inline_data: { mime_type: input.mimeType, data: input.base64 } };
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const payload = {
     contents: [{
-      parts: [
-        { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
-        { text: prompt }
-      ]
+      parts: [firstPart, { text: prompt }]
     }],
     generationConfig: {
       temperature: 0.1,
@@ -201,7 +239,8 @@ function extractFromPdf(pdfBase64, filename) {
 
   const out = {};
   HEADERS.forEach(h => { out[h] = (parsed[h] != null ? String(parsed[h]) : '').trim(); });
-  out.INTERNAL_FILENAME = filename;
+  out.INTERNAL_FILENAME = input.filename;
+  out.INTERNAL_SOURCE = input.kind; // 'pdf' | 'image' | 'text'
   return out;
 }
 
@@ -221,10 +260,15 @@ function buildResponseSchema() {
   };
 }
 
-function buildPrompt() {
+function buildPrompt(kind) {
+  const sourceLabel = kind === 'text'
+    ? 'el texto del lead (puede ser informal, abreviado, copiado de mail/WhatsApp/notas)'
+    : kind === 'image'
+      ? 'la imagen adjunta (screenshot de mail, WhatsApp, propuesta, o foto de papel)'
+      : 'el PDF adjunto (propuesta o presupuesto)';
   return [
-    'Sos un asistente que extrae datos de propuestas/presupuestos PDF de un catering argentino llamado La Fondiatta.',
-    'Tu tarea: leer el PDF adjunto y devolver UN ÚNICO objeto JSON (no un array) con EXACTAMENTE estos keys:',
+    'Sos un asistente que extrae datos de leads/propuestas/presupuestos de un catering argentino llamado La Fondiatta.',
+    `Tu tarea: analizar ${sourceLabel} y devolver UN ÚNICO objeto JSON (no un array) con EXACTAMENTE estos keys:`,
     '',
     JSON.stringify(HEADERS, null, 2),
     '',
@@ -236,7 +280,7 @@ function buildPrompt() {
     `- "Vendedor": uno de ${JSON.stringify(VENDEDORES)} si aparece firmado o mencionado, sino "".`,
     `- "Tipo de Evento": uno de ${JSON.stringify(TIPOS_EVENTO)}, el que mejor encaje. Si nada encaja, "".`,
     '- "Fecha Envío": "" (lo completa el sistema con la fecha de hoy).',
-    '- "Fecha Evento": copiá tal cual aparece en el PDF (ej: "jueves 4 de junio", "9/05/2026"). No la conviertas.',
+    '- "Fecha Evento": copiá tal cual aparece (ej: "jueves 4 de junio", "9/05/2026", "26 de junio"). No la conviertas.',
     '- "Fecha Último Contacto": "".',
     '- "Mes": deducir del año/mes del evento en formato "mes 26" (ej: "junio 26", "mayo 26"). Si la fecha no es clara, "".',
     '- "ID Presupuesto": "" (lo asigna el sistema).',
@@ -252,7 +296,8 @@ function buildPrompt() {
     '- "Observaciones": cualquier dato extra relevante que no entró en otro campo (forma de pago especial, requisitos, etc.). Mantenelo corto.',
     '- "INTERNAL ID": "".',
     '',
-    'Si algún dato NO está en el PDF, devolvé string vacío "" para ese campo. NO inventes datos.',
+    'Si algún dato NO está presente, devolvé string vacío "" para ese campo. NO inventes datos.',
+    'Si el input es informal (ej: "30 pax / Jorge Lanza / propuesta general / 26 de junio"), igual extraé lo que puedas: nombre del contacto, pax, tipo de evento, fecha, etc. Lo que no esté → "".',
     'Devolvé SOLO el JSON, sin markdown, sin texto adicional.'
   ].join('\n');
 }

@@ -507,6 +507,21 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .previo-item .prev-id{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--acc);margin-right:8px}
 
 /* === MODAL PDF UPLOAD === */
+/* === LEAD TABS (PDF / Imagen / Texto) === */
+.lead-tabs{display:flex;gap:0;border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:14px;background:#0a0a0a}
+.lead-tab{flex:1;background:transparent;border:none;color:var(--fg-dim);padding:11px 8px;font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;cursor:pointer;transition:all .15s ease;border-right:1px solid var(--border)}
+.lead-tab:last-child{border-right:none}
+.lead-tab:hover{color:var(--fg);background:#141414}
+.lead-tab.active{background:var(--fg);color:var(--bg);font-weight:700}
+.lead-input{display:none}
+.lead-input.active{display:block}
+.lead-text-wrap{display:flex;flex-direction:column;gap:10px}
+.lead-text-wrap textarea{width:100%;background:#0a0a0a;border:1.5px dashed var(--border);border-radius:6px;padding:16px;color:var(--fg);font-family:inherit;font-size:13px;line-height:1.5;resize:vertical;min-height:140px;transition:border-color .15s ease}
+.lead-text-wrap textarea:focus{outline:none;border-color:var(--fg-dim);border-style:solid}
+.lead-text-wrap textarea::placeholder{color:var(--fg-dim);font-style:italic}
+.lead-text-submit{align-self:flex-end;background:var(--fg);color:var(--bg);border:none;padding:10px 18px;border-radius:4px;font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;cursor:pointer;transition:opacity .15s ease}
+.lead-text-submit:hover{opacity:.85}
+.lead-text-submit:disabled{opacity:.5;cursor:not-allowed}
 .pdf-dropzone{border:2px dashed var(--border);border-radius:6px;padding:36px 20px;text-align:center;cursor:pointer;transition:all .15s ease;background:rgba(244,239,230,0.02)}
 .pdf-dropzone:hover,.pdf-dropzone.dragover{border-color:var(--fg-dim);background:rgba(244,239,230,0.06)}
 .pdf-dropzone .pd-icon{font-size:32px;margin-bottom:10px;opacity:.7}
@@ -582,7 +597,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
       </div>
       <div class="header-actions">
         <button class="btn-load-previo" onclick="abrirModalPrevios()" title="Buscá un presupuesto anterior y cargalo para editarlo">📂 Cargar previo</button>
-        <button class="btn-load-previo" onclick="abrirModalPdf()" title="Subí un PDF (propio o de proveedor) y lo registramos automáticamente en el Sheet de seguimiento">📥 Subir PDF</button>
+        <button class="btn-load-previo" onclick="abrirModalPdf()" title="Cargá un lead (PDF, imagen o texto) y lo registramos automáticamente en el Sheet de seguimiento">📥 Cargar lead</button>
         <button class="btn-reset-top" onclick="resetAll()" title="Borra todos los datos y crea un presupuesto nuevo">↺ Empezar de cero</button>
       </div>
     </header>
@@ -1085,18 +1100,42 @@ input,select,textarea{font-family:inherit;font-size:14px}
   </div>
 </div>
 
-<!-- MODAL: Subir PDF y registrar en Sheet -->
+<!-- MODAL: Cargar lead y registrar en Sheet -->
 <div class="modal-backdrop" id="pdf-modal" data-backdrop-close="cerrarModalPdf">
   <div class="modal-box" style="max-width:780px">
     <button class="m-close-x" onclick="cerrarModalPdf()" aria-label="Cerrar">×</button>
-    <h3>Subir PDF a <em>seguimiento</em></h3>
-    <div class="m-sub">Subí cualquier PDF de propuesta o presupuesto (propio o externo). Gemini extrae los datos clave, los podés revisar/editar, y se registra como nueva fila en la Sheet de seguimiento.</div>
+    <h3>Cargar lead a <em>seguimiento</em></h3>
+    <div class="m-sub">Cargá un lead desde un PDF, una imagen (screenshot de mail/WhatsApp) o texto pegado al toque. Gemini extrae los datos clave, los podés revisar/editar, y se registra como nueva fila en la Sheet de seguimiento.</div>
 
-    <div class="pdf-dropzone" id="pdf-dropzone" onclick="document.getElementById('pdf-file-input').click()">
-      <div class="pd-icon">📄</div>
-      <div class="pd-title">Arrastrá un PDF acá o tocá para elegir</div>
-      <div class="pd-sub">Formatos aceptados: .pdf · Máx 20 MB</div>
-      <input type="file" id="pdf-file-input" accept="application/pdf,.pdf" onchange="handlePdfFile(event)">
+    <div class="lead-tabs">
+      <button type="button" class="lead-tab active" data-lead-tab="pdf" onclick="switchLeadTab('pdf')">📄 PDF</button>
+      <button type="button" class="lead-tab" data-lead-tab="image" onclick="switchLeadTab('image')">🖼 Imagen</button>
+      <button type="button" class="lead-tab" data-lead-tab="text" onclick="switchLeadTab('text')">📝 Texto</button>
+    </div>
+
+    <div class="lead-input active" data-lead-panel="pdf">
+      <div class="pdf-dropzone" id="pdf-dropzone" onclick="document.getElementById('pdf-file-input').click()">
+        <div class="pd-icon">📄</div>
+        <div class="pd-title">Arrastrá un PDF acá o tocá para elegir</div>
+        <div class="pd-sub">Formatos aceptados: .pdf · Máx 20 MB</div>
+        <input type="file" id="pdf-file-input" accept="application/pdf,.pdf" onchange="handlePdfFile(event)">
+      </div>
+    </div>
+
+    <div class="lead-input" data-lead-panel="image">
+      <div class="pdf-dropzone" id="img-dropzone" onclick="document.getElementById('img-file-input').click()">
+        <div class="pd-icon">🖼</div>
+        <div class="pd-title">Arrastrá una imagen acá o tocá para elegir</div>
+        <div class="pd-sub">JPG, PNG, WEBP · Máx 15 MB · Sirve screenshot de mail, WhatsApp, propuesta o foto</div>
+        <input type="file" id="img-file-input" accept="image/*" onchange="handleImageFile(event)">
+      </div>
+    </div>
+
+    <div class="lead-input" data-lead-panel="text">
+      <div class="lead-text-wrap">
+        <textarea id="lead-text-input" placeholder="Pegá o escribí el lead como te llegue. Ej: 30 pax / Jorge Lanza / propuesta general / 26 de junio · 11 5555-5555" rows="6"></textarea>
+        <button type="button" class="lead-text-submit" onclick="handleTextLead()">Extraer datos del texto</button>
+      </div>
     </div>
 
     <div class="pdf-status" id="pdf-status"></div>
@@ -2914,23 +2953,37 @@ function abrirModalPdf() {
   modal.classList.add('open');
   // Reset
   document.getElementById('pdf-file-input').value = '';
+  document.getElementById('img-file-input').value = '';
+  document.getElementById('lead-text-input').value = '';
   document.getElementById('pdf-status').className = 'pdf-status';
   document.getElementById('pdf-status').textContent = '';
   document.getElementById('pdf-preview-form').classList.remove('open');
+  switchLeadTab('pdf');
   _pdfExtracted = null;
   _pdfFilename = '';
   _pdfIdempotencyKey = '';
   resetCalendarSection();
 
-  // Drag & drop handlers
-  const dz = document.getElementById('pdf-dropzone');
-  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('dragover'); };
-  dz.ondragleave = () => dz.classList.remove('dragover');
-  dz.ondrop = (e) => {
+  // Drag & drop handlers — PDF
+  const dzPdf = document.getElementById('pdf-dropzone');
+  dzPdf.ondragover = (e) => { e.preventDefault(); dzPdf.classList.add('dragover'); };
+  dzPdf.ondragleave = () => dzPdf.classList.remove('dragover');
+  dzPdf.ondrop = (e) => {
     e.preventDefault();
-    dz.classList.remove('dragover');
+    dzPdf.classList.remove('dragover');
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handlePdfFile({ target: { files: e.dataTransfer.files } });
+    }
+  };
+  // Drag & drop handlers — Imagen
+  const dzImg = document.getElementById('img-dropzone');
+  dzImg.ondragover = (e) => { e.preventDefault(); dzImg.classList.add('dragover'); };
+  dzImg.ondragleave = () => dzImg.classList.remove('dragover');
+  dzImg.ondrop = (e) => {
+    e.preventDefault();
+    dzImg.classList.remove('dragover');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleImageFile({ target: { files: e.dataTransfer.files } });
     }
   };
 
@@ -2976,6 +3029,15 @@ function setPdfStatus(msg, kind) {
   el.className = 'pdf-status ' + (kind || 'info');
 }
 
+function switchLeadTab(tab) {
+  document.querySelectorAll('.lead-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.leadTab === tab);
+  });
+  document.querySelectorAll('.lead-input').forEach(p => {
+    p.classList.toggle('active', p.dataset.leadPanel === tab);
+  });
+}
+
 async function handlePdfFile(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
@@ -2987,11 +3049,28 @@ async function handlePdfFile(e) {
     setPdfStatus('El PDF supera 20 MB. Reducilo o subilo en partes.', 'error');
     return;
   }
-  if (!APPS_SCRIPT_PDF_URL) {
-    setPdfStatus('Falta configurar la URL del Apps Script de PDF. Avisale a Camba.', 'error');
+  await processLeadFile(file, { kind: 'pdf', payloadKey: 'pdfBase64' });
+}
+
+async function handleImageFile(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    setPdfStatus('El archivo no parece una imagen. Probá con un JPG, PNG o WEBP.', 'error');
     return;
   }
+  if (file.size > 15 * 1024 * 1024) {
+    setPdfStatus('La imagen supera 15 MB. Comprimila o subila más chica.', 'error');
+    return;
+  }
+  await processLeadFile(file, { kind: 'image', payloadKey: 'imageBase64', mimeType: file.type });
+}
 
+async function processLeadFile(file, opts) {
+  if (!APPS_SCRIPT_PDF_URL) {
+    setPdfStatus('Falta configurar la URL del Apps Script. Avisale a Camba.', 'error');
+    return;
+  }
   _pdfFilename = file.name;
   _pdfIdempotencyKey = generateIdempotencyKey();
   setPdfStatus(`Leyendo "${file.name}" (${(file.size/1024).toFixed(0)} KB)…`, 'info');
@@ -2999,17 +3078,52 @@ async function handlePdfFile(e) {
   try {
     const base64 = await fileToBase64(file);
     setPdfStatus('Extrayendo datos con Gemini… (puede tardar 5–12 seg)', 'info');
-    const res = await callPdfEndpoint({ filename: file.name, pdfBase64: base64, dryRun: true });
+    const payload = { filename: file.name, dryRun: true };
+    payload[opts.payloadKey] = base64;
+    if (opts.mimeType) payload.mimeType = opts.mimeType;
+    const res = await callPdfEndpoint(payload);
     if (!res.ok) throw new Error(res.error || 'Error desconocido');
     _pdfExtracted = res.data;
     fillPreviewForm(res.data);
     document.getElementById('pdf-preview-form').classList.add('open');
     setPdfStatus('Datos extraídos. Revisá y editá lo que haga falta antes de registrar.', 'ok');
-    // Disparar búsqueda en Calendar en background — no bloquea el flujo.
     refreshCalendarMatches();
   } catch (err) {
     console.error(err);
-    setPdfStatus('No se pudo extraer datos del PDF: ' + err.message, 'error');
+    setPdfStatus('No se pudo extraer datos: ' + err.message, 'error');
+  }
+}
+
+async function handleTextLead() {
+  const textEl = document.getElementById('lead-text-input');
+  const content = (textEl.value || '').trim();
+  if (!content) {
+    setPdfStatus('Pegá o escribí algo antes de extraer.', 'error');
+    return;
+  }
+  if (!APPS_SCRIPT_PDF_URL) {
+    setPdfStatus('Falta configurar la URL del Apps Script. Avisale a Camba.', 'error');
+    return;
+  }
+  _pdfFilename = 'lead-texto-' + new Date().toISOString().slice(0,16).replace(/[:T]/g,'-') + '.txt';
+  _pdfIdempotencyKey = generateIdempotencyKey();
+  setPdfStatus('Extrayendo datos del texto con Gemini…', 'info');
+
+  try {
+    const res = await callPdfEndpoint({
+      filename: _pdfFilename,
+      text: content,
+      dryRun: true
+    });
+    if (!res.ok) throw new Error(res.error || 'Error desconocido');
+    _pdfExtracted = res.data;
+    fillPreviewForm(res.data);
+    document.getElementById('pdf-preview-form').classList.add('open');
+    setPdfStatus('Datos extraídos. Revisá y editá lo que haga falta antes de registrar.', 'ok');
+    refreshCalendarMatches();
+  } catch (err) {
+    console.error(err);
+    setPdfStatus('No se pudo extraer datos del texto: ' + err.message, 'error');
   }
 }
 

@@ -79,6 +79,13 @@ function doPost(e) {
       });
     }
 
+    // Acción: actualizar la columna "Se agendo en Calendar?" (T) de un presupuesto
+    // ya escrito por el bound v4.0. Reintenta si la fila todavía no apareció
+    // (race condition con el bound que recibe el POST en paralelo desde el cotizador).
+    if (body.action === 'updateCalendarUrl') {
+      return jsonResponse(updateCalendarUrlForPresupuesto(body.presupuestoId, body.calendarEventUrl));
+    }
+
     // Caso 1: registro confirmado con datos editados por el usuario
     //         (no se vuelve a llamar a Gemini, se escribe directo)
     if (body.confirmedData && !body.dryRun) {
@@ -340,6 +347,46 @@ function appendRow(data) {
   const row = HEADERS.map(h => data[h] != null ? data[h] : '');
   sheet.appendRow(row);
   return sheet.getLastRow();
+}
+
+// Actualiza la columna T ("Se agendo en Calendar?") de la fila que tenga
+// `presupuestoId` (internal ID estable del cotizador, formato "p_xxx") en la
+// columna V. La fila la escribió el bound v4.0; como el cotizador manda ambos
+// requests en paralelo (bound con no-cors, no espera respuesta), puede haber
+// una pequeña ventana en la que la fila todavía no existe → reintentamos.
+//
+// No sobreescribimos si la columna ya tiene un valor distinto: preservamos
+// edición manual del Sheet.
+function updateCalendarUrlForPresupuesto(presupuestoId, calendarEventUrl) {
+  if (!presupuestoId || !calendarEventUrl) {
+    return { ok: false, error: 'presupuestoId y calendarEventUrl son requeridos' };
+  }
+  const INTERNAL_ID_COL = 22; // V
+  const CALENDAR_COL = 20;    // T — "Se agendo en Calendar?"
+  const sheet = getSheet();
+
+  // Hasta 6 reintentos × 1s = 6 seg de tolerancia para race condition con bound
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const ids = sheet.getRange(2, INTERNAL_ID_COL, lastRow - 1, 1).getValues();
+      for (let i = 0; i < ids.length; i++) {
+        if (String(ids[i][0] || '').trim() === String(presupuestoId).trim()) {
+          const targetRow = i + 2;
+          const cell = sheet.getRange(targetRow, CALENDAR_COL);
+          const existing = String(cell.getValue() || '').trim();
+          if (existing && existing !== calendarEventUrl) {
+            // Ya tenía un link distinto — no pisamos.
+            return { ok: true, row: targetRow, mode: 'skipped_existing', existing: existing };
+          }
+          cell.setValue(calendarEventUrl);
+          return { ok: true, row: targetRow, mode: 'written' };
+        }
+      }
+    }
+    Utilities.sleep(1000);
+  }
+  return { ok: false, error: 'No se encontró la fila con presupuestoId=' + presupuestoId + ' después de 6 segundos. Verificá que el bound v4.0 esté escribiendo.' };
 }
 
 function todayDDMMYYYY() {

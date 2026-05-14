@@ -1214,6 +1214,36 @@ input,select,textarea{font-family:inherit;font-size:14px}
   </div>
 </div>
 
+<!-- MODAL: Calendar gate antes de Exportar PDF / Solo Registrar / Cierre -->
+<div class="modal-backdrop" id="cal-gate-modal" data-backdrop-close="cerrarCalGateModal">
+  <div class="modal-box" style="max-width:680px">
+    <button class="m-close-x" onclick="cerrarCalGateModal()" aria-label="Cerrar">×</button>
+    <h3>Antes de exportar: <em>Calendar</em></h3>
+    <div class="m-sub">¿Querés agendar este presupuesto como <strong>POSIBLE</strong> en LF Posibles para seguirlo desde Calendar? Es el mismo flujo que cuando cargás un lead por PDF.</div>
+
+    <div class="pf-cal" id="gate-cal">
+      <div class="pf-cal-head">
+        <div class="pf-cal-title">📅 Calendar · match y seguimiento</div>
+        <div class="pf-cal-status" id="gate-cal-status">Buscando eventos…</div>
+      </div>
+      <div id="gate-cal-warn"></div>
+      <div id="gate-cal-options"></div>
+      <div id="gate-cal-suggest"></div>
+      <div class="pf-cal-actions">
+        <button class="pf-cal-btn primary" id="gate-cal-create-btn" type="button" onclick="gateCrearPosible()">📅 Agendar como POSIBLE en LF Posibles</button>
+        <button class="pf-cal-btn" type="button" onclick="refreshGateMatches()">↻ Reintentar búsqueda</button>
+      </div>
+      <div id="gate-cal-confirmed"></div>
+    </div>
+
+    <div id="gate-confirm-hint" class="pf-confirm-hint"></div>
+    <div class="pdf-actions">
+      <button class="pa-cancel" onclick="cerrarCalGateModal()">Cancelar</button>
+      <button class="pa-confirm" id="gate-confirm-btn" onclick="gateConfirmAndProceed()">Continuar y exportar</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
 <script>
@@ -2388,6 +2418,21 @@ function handlePrimaryAction() {
 function exportPDF() {
   if (!validarAntesDeEnviar()) return;
 
+  // Gate Calendar: si hay Fecha Evento, abrimos el modal Calendar primero.
+  // Si el usuario decide (linkear / POSIBLE / Ninguno), continuamos con el flow.
+  // Si no hay Fecha Evento, salteamos el gate (sin fecha no hay POSIBLE posible).
+  if (gateNeeded()) {
+    openCalendarGate({ ctaLabel: 'Continuar y exportar' }, (calendarEventUrl) => {
+      _exportCalendarEventUrl = calendarEventUrl || '';
+      _exportPDFInner();
+    });
+    return;
+  }
+  _exportCalendarEventUrl = '';
+  _exportPDFInner();
+}
+
+function _exportPDFInner() {
   // Auto-completar nombre del evento con el formato configurado
   generarNombreAuto();
 
@@ -2429,9 +2474,20 @@ function soloRegistrar() {
     return;
   }
 
+  if (gateNeeded()) {
+    openCalendarGate({ ctaLabel: 'Continuar y registrar' }, (calendarEventUrl) => {
+      _exportCalendarEventUrl = calendarEventUrl || '';
+      _soloRegistrarInner();
+    });
+    return;
+  }
+  _exportCalendarEventUrl = '';
+  _soloRegistrarInner();
+}
+
+function _soloRegistrarInner() {
   // Auto-completar nombre del evento con formato "DD.MM.YY - Nombre - XX pax - fecha"
   generarNombreAuto();
-
   registerInSheet();
 }
 
@@ -2441,6 +2497,18 @@ function soloRegistrar() {
 function exportCierre() {
   if (!validarAntesDeEnviar()) return;
 
+  if (gateNeeded()) {
+    openCalendarGate({ ctaLabel: 'Continuar y exportar cierre' }, (calendarEventUrl) => {
+      _exportCalendarEventUrl = calendarEventUrl || '';
+      _exportCierreInner();
+    });
+    return;
+  }
+  _exportCalendarEventUrl = '';
+  _exportCierreInner();
+}
+
+function _exportCierreInner() {
   generarNombreAuto();
   renderDocCierre();
 
@@ -2751,6 +2819,23 @@ function registerInSheet() {
       console.error(err);
       showSheetToast('⚠️ No se pudo registrar en el Sheet. Revisá la conexión.', true);
     });
+
+  // Si el usuario decidió linkear/agendar un evento en Calendar via el gate,
+  // notificamos al standalone para que escriba la columna T por presupuestoId.
+  // El bound v4.0 no toca esa columna, por eso lo hacemos por separado.
+  // El standalone reintenta hasta 6s buscando la fila (race con el bound).
+  if (_exportCalendarEventUrl && APPS_SCRIPT_PDF_URL && payload.presupuestoId) {
+    fetch(APPS_SCRIPT_PDF_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'updateCalendarUrl',
+        presupuestoId: payload.presupuestoId,
+        calendarEventUrl: _exportCalendarEventUrl
+      }),
+      redirect: 'follow'
+    }).catch(err => console.error('updateCalendarUrl falló:', err));
+  }
 }
 
 function showSheetToast(msg, isError) {
@@ -3591,6 +3676,327 @@ function escapeHtml(s) {
   }[c]));
 }
 function escapeAttr(s) { return escapeHtml(s); }
+
+// ==================================================================
+// === CALENDAR GATE · modal antes de Exportar PDF / Solo Registrar =
+// ==================================================================
+//
+// Flow:
+//   1. exportPDF() / soloRegistrar() / exportCierre() llaman a gateNeeded()
+//   2. Si hay Fecha Evento, abren openCalendarGate(opts, onProceed)
+//   3. El modal busca eventos en Calendar y muestra la misma UI que el
+//      modal de "Cargar lead" (banner same-day + radio buttons + POSIBLE)
+//   4. Al confirmar, llaman onProceed(calendarEventUrl) que ejecuta el
+//      flow real con el URL elegido
+//   5. _exportCalendarEventUrl queda guardado para que registerInSheet
+//      lo mande al standalone que actualiza la columna T
+
+let _exportCalendarEventUrl = '';
+let _gateChoice = 'pending'; // 'pending' | 'linked' | 'posible' | 'none'
+let _gateOnProceed = null;
+let _gateLastSearch = null;
+let _gateCalItems = [];
+
+function gateNeeded() {
+  const evDateRaw = (document.getElementById('f-event-date') || {}).value || '';
+  return !!evDateRaw.trim();
+}
+
+function fechaEventoForGate() {
+  // Devuelve la fecha del input <type=date> como DD/MM/YYYY (lo que parsea el backend)
+  const raw = (document.getElementById('f-event-date') || {}).value || '';
+  if (!raw) return '';
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return raw;
+}
+
+function clienteForGate() {
+  const company = (document.getElementById('f-company') || {}).value || '';
+  const name = (document.getElementById('f-name') || {}).value || '';
+  return (company.trim() || name.trim() || 'Sin cliente');
+}
+
+function paxForGate() {
+  return ((document.getElementById('f-pax') || {}).value || '').trim();
+}
+
+function openCalendarGate(opts, onProceed) {
+  _gateOnProceed = onProceed;
+  _gateChoice = 'pending';
+  _exportCalendarEventUrl = '';
+  _gateLastSearch = null;
+  _gateCalItems = [];
+
+  const modal = document.getElementById('cal-gate-modal');
+  modal.classList.add('open');
+
+  const cta = (opts && opts.ctaLabel) || 'Continuar';
+  document.getElementById('gate-confirm-btn').textContent = cta;
+
+  // Reset UI
+  document.getElementById('gate-cal-status').textContent = '';
+  document.getElementById('gate-cal-status').className = 'pf-cal-status';
+  document.getElementById('gate-cal-warn').innerHTML = '';
+  document.getElementById('gate-cal-options').innerHTML = '';
+  document.getElementById('gate-cal-suggest').innerHTML = '';
+  document.getElementById('gate-cal-confirmed').innerHTML = '';
+  const cBtn = document.getElementById('gate-cal-create-btn');
+  cBtn.disabled = false;
+  cBtn.textContent = '📅 Agendar como POSIBLE en LF Posibles';
+  gateApplyChoiceLock();
+
+  refreshGateMatches();
+}
+
+function cerrarCalGateModal() {
+  document.getElementById('cal-gate-modal').classList.remove('open');
+  _gateOnProceed = null;
+}
+
+function gateConfirmAndProceed() {
+  if (_gateChoice === 'pending') return; // botón bloqueado, no debería pasar
+  const fn = _gateOnProceed;
+  const url = _exportCalendarEventUrl;
+  cerrarCalGateModal();
+  if (typeof fn === 'function') fn(url);
+}
+
+function gateApplyChoiceLock() {
+  const btn = document.getElementById('gate-confirm-btn');
+  const hint = document.getElementById('gate-confirm-hint');
+  if (!btn || !hint) return;
+  if (_gateChoice === 'pending') {
+    btn.disabled = true;
+    hint.textContent = 'Decidí arriba qué hacer con el seguimiento en Calendar antes de continuar.';
+    hint.style.display = 'block';
+  } else {
+    btn.disabled = false;
+    hint.textContent = '';
+    hint.style.display = 'none';
+  }
+}
+
+function gateRenderSuggestBanner(show) {
+  const el = document.getElementById('gate-cal-suggest');
+  if (!el) return;
+  if (!show) { el.innerHTML = ''; return; }
+  el.innerHTML =
+    '<div class="pf-cal-suggest">' +
+    '<strong>💡 Este presupuesto no está agendado todavía.</strong> ' +
+    'Agendalo como <strong>POSIBLE</strong> para tenerlo visible en Calendar y no perder el seguimiento del lead.' +
+    '</div>';
+}
+
+async function refreshGateMatches() {
+  const fechaEvento = fechaEventoForGate();
+  const cliente = clienteForGate();
+
+  const statusEl = document.getElementById('gate-cal-status');
+  const warnEl = document.getElementById('gate-cal-warn');
+  const optsEl = document.getElementById('gate-cal-options');
+  const createBtn = document.getElementById('gate-cal-create-btn');
+
+  warnEl.innerHTML = '';
+  optsEl.innerHTML = '';
+  document.getElementById('gate-cal-confirmed').innerHTML = '';
+  document.getElementById('gate-cal-suggest').innerHTML = '';
+  _gateChoice = 'pending';
+  _exportCalendarEventUrl = '';
+  gateApplyChoiceLock();
+
+  if (!fechaEvento) {
+    statusEl.textContent = 'Sin fecha del evento — no se puede agendar como POSIBLE.';
+    statusEl.className = 'pf-cal-status';
+    createBtn.disabled = true;
+    gateRenderNoneOption(optsEl, 'No hay fecha. Podés registrar sin Calendar.');
+    return;
+  }
+
+  statusEl.textContent = 'Buscando eventos en tus calendarios…';
+  statusEl.className = 'pf-cal-status loading';
+  createBtn.disabled = true;
+
+  try {
+    const res = await callPdfEndpoint({
+      action: 'searchCalendar',
+      fechaEvento,
+      cliente
+    });
+    if (!res.ok) throw new Error(res.error || 'Error en searchCalendar');
+    const r = res.result;
+    _gateLastSearch = r;
+
+    if (!r.ok && r.reason === 'fecha_no_parseada') {
+      statusEl.textContent = `No pude entender la fecha "${r.fechaEvento}". Cargá una válida y reintentá.`;
+      statusEl.className = 'pf-cal-status error';
+      createBtn.disabled = true;
+      gateRenderNoneOption(optsEl, 'Fecha no detectada. Podés registrar sin Calendar.');
+      return;
+    }
+
+    createBtn.disabled = false;
+    renderGateResult(r);
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Error consultando Calendar: ' + err.message;
+    statusEl.className = 'pf-cal-status error';
+    createBtn.disabled = false;
+    gateRenderNoneOption(optsEl, 'No pudimos consultar Calendar. Podés agendar POSIBLE o registrar sin Calendar.');
+  }
+}
+
+function gateRenderNoneOption(optsEl, helpText) {
+  optsEl.innerHTML =
+    `<div class="pf-cal-empty">${escapeHtml(helpText)}</div>` +
+    '<label class="pf-cal-opt" data-idx="-1">' +
+    '<input type="radio" name="gate-cal-pick" value="-1" onchange="onGatePick(-1)">' +
+    '<div class="pf-cal-opt-body">' +
+    '<div class="pf-cal-opt-title">— Ninguno (registrar sin Calendar)</div>' +
+    '<div class="pf-cal-opt-meta">El presupuesto se registra sin link a Calendar.</div>' +
+    '</div>' +
+    '</label>';
+  _gateCalItems = [];
+}
+
+function renderGateResult(r) {
+  const statusEl = document.getElementById('gate-cal-status');
+  const warnEl = document.getElementById('gate-cal-warn');
+  const optsEl = document.getElementById('gate-cal-options');
+  const createBtn = document.getElementById('gate-cal-create-btn');
+
+  const sameDay = r.sameDayEvents || [];
+  const nearby = r.nearbyEvents || [];
+
+  statusEl.textContent = `Buscado en tu Calendar para el ${r.dateLabel}.`;
+  statusEl.className = 'pf-cal-status';
+
+  if (sameDay.length > 0) {
+    const n = sameDay.length;
+    warnEl.innerHTML =
+      '<div class="pf-cal-warn">' +
+      `<strong>⚠ Ese día (${escapeHtml(r.dateLabel)}) ya tenés ${n} evento${n === 1 ? '' : 's'} en tus calendarios.</strong> ` +
+      'Revisalos antes de confirmar nuevos compromisos.' +
+      '</div>';
+  }
+
+  if (r.posibleExisting) {
+    selectGateMatch(r.posibleExisting.url, r.posibleExisting.title, true, 'posible');
+    createBtn.disabled = true;
+    createBtn.textContent = '✓ Ya existe un POSIBLE para este cliente';
+  }
+
+  const noMatches = (sameDay.length === 0);
+  const showSuggest = noMatches && !r.posibleExisting && _gateChoice === 'pending';
+  gateRenderSuggestBanner(showSuggest);
+
+  const items = sameDay.concat(nearby);
+  if (items.length === 0) {
+    optsEl.innerHTML = '<div class="pf-cal-empty">No hay eventos cercanos. Podés agendar como POSIBLE o registrar sin Calendar.</div>' +
+      '<label class="pf-cal-opt" data-idx="-1">' +
+      '<input type="radio" name="gate-cal-pick" value="-1" onchange="onGatePick(-1)">' +
+      '<div class="pf-cal-opt-body">' +
+      '<div class="pf-cal-opt-title">— Ninguno (registrar sin Calendar)</div>' +
+      '<div class="pf-cal-opt-meta">El presupuesto se registra sin link a Calendar.</div>' +
+      '</div></label>';
+    _gateCalItems = [];
+    return;
+  }
+
+  const radios = items.map((it, idx) => {
+    const tagSameDay = it.sameDay ? '<span class="pf-cal-opt-tag same-day">Mismo día</span>' : '';
+    const tagPosible = it.isPosible ? '<span class="pf-cal-opt-tag posible">POSIBLE</span>' : '';
+    const startLbl = it.allDay ? 'Todo el día' : formatHora(it.start);
+    return (
+      `<label class="pf-cal-opt" data-idx="${idx}">` +
+      `<input type="radio" name="gate-cal-pick" value="${idx}" onchange="onGatePick(${idx})">` +
+      '<div class="pf-cal-opt-body">' +
+      `<div class="pf-cal-opt-title">${tagSameDay}${tagPosible}${escapeHtml(it.title || '(sin título)')}</div>` +
+      `<div class="pf-cal-opt-meta">${escapeHtml(it.calendar)} · ${escapeHtml(startLbl)}</div>` +
+      '</div>' +
+      '</label>'
+    );
+  });
+  const noneRadio =
+    '<label class="pf-cal-opt" data-idx="-1">' +
+    '<input type="radio" name="gate-cal-pick" value="-1" onchange="onGatePick(-1)">' +
+    '<div class="pf-cal-opt-body">' +
+    '<div class="pf-cal-opt-title">— Ninguno (registrar sin Calendar)</div>' +
+    '<div class="pf-cal-opt-meta">El presupuesto se registra sin link a Calendar.</div>' +
+    '</div></label>';
+  optsEl.innerHTML = radios.join('') + noneRadio;
+  _gateCalItems = items;
+
+  if (r.posibleExisting) {
+    const idx = items.findIndex(it => it.eventId === r.posibleExisting.eventId);
+    if (idx >= 0) {
+      const radio = optsEl.querySelector(`input[value="${idx}"]`);
+      if (radio) { radio.checked = true; markGateSelected(idx); }
+    }
+  }
+}
+
+function onGatePick(idx) {
+  markGateSelected(idx);
+  if (idx === -1 || idx === '-1') {
+    _exportCalendarEventUrl = '';
+    _gateChoice = 'none';
+    document.getElementById('gate-cal-confirmed').innerHTML =
+      '<div class="pf-cal-confirmed" style="border-left-color:#888;background:#1a1a1a;color:var(--fg-dim)">Sin link a Calendar — el presupuesto se registra igual.</div>';
+    gateRenderSuggestBanner(false);
+    gateApplyChoiceLock();
+    return;
+  }
+  const it = _gateCalItems[idx];
+  if (!it) return;
+  const choiceKind = it.isPosible ? 'posible' : 'linked';
+  selectGateMatch(it.url, it.title, false, choiceKind);
+}
+
+function markGateSelected(idx) {
+  document.querySelectorAll('#cal-gate-modal .pf-cal-opt').forEach(el => {
+    el.classList.toggle('selected', el.getAttribute('data-idx') === String(idx));
+  });
+}
+
+function selectGateMatch(url, title, autoSelected, choiceKind) {
+  _exportCalendarEventUrl = url;
+  _gateChoice = choiceKind || 'linked';
+  const tag = autoSelected ? '✓ POSIBLE existente detectado · linkeado al presupuesto' : '✓ Linkeado al presupuesto';
+  document.getElementById('gate-cal-confirmed').innerHTML =
+    `<div class="pf-cal-confirmed">${tag}: <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(title)}</a></div>`;
+  gateRenderSuggestBanner(false);
+  gateApplyChoiceLock();
+}
+
+async function gateCrearPosible() {
+  const fechaEvento = fechaEventoForGate();
+  const cliente = clienteForGate();
+  const pax = paxForGate();
+  if (!fechaEvento) { alert('Cargá la "Fecha Evento" antes de agendar.'); return; }
+
+  const btn = document.getElementById('gate-cal-create-btn');
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = 'Creando…';
+
+  try {
+    const res = await callPdfEndpoint({
+      action: 'createPosibleEvent',
+      fechaEvento, cliente, pax
+    });
+    if (!res.ok) throw new Error(res.error || 'Error en createPosibleEvent');
+    const ev = res.event;
+    selectGateMatch(ev.url, ev.title, false, 'posible');
+    btn.textContent = ev.alreadyExisted ? '✓ Reutilizado POSIBLE existente' : '✓ POSIBLE creado en LF Posibles';
+    setTimeout(() => { btn.textContent = originalText; refreshGateMatches(); }, 1500);
+  } catch (err) {
+    console.error(err);
+    btn.textContent = originalText;
+    btn.disabled = false;
+    alert('No se pudo crear el evento POSIBLE: ' + err.message);
+  }
+}
 </script>
 </body>
 </html>

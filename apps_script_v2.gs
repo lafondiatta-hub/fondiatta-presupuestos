@@ -25,7 +25,10 @@ function doPost(e) {
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sh = ss.getSheets()[0];
-    var lastRow = sh.getLastRow();
+    // Usamos findLastWrittenRow_ — getLastRow() se infla cuando hay validación
+    // o formato condicional aplicado a muchas filas abajo, y el append cae
+    // muy lejos de la última fila con datos reales.
+    var lastRow = findLastWrittenRow_(sh);
 
     var ID_PRES_COL    = 11; // K
     var INTERNAL_ID_COL = 22; // V
@@ -159,7 +162,7 @@ function doGet(e) {
 function dashboardData(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheets()[0];
-  var lastRow = sh.getLastRow();
+  var lastRow = findLastWrittenRow_(sh);
   if (lastRow < 2) {
     return ContentService
       .createTextOutput(JSON.stringify({ok: true, items: []}))
@@ -204,7 +207,7 @@ function dashboardData(e) {
 function listPresupuestos(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheets()[0];
-  var lastRow = sh.getLastRow();
+  var lastRow = findLastWrittenRow_(sh);
   if (lastRow < 2) {
     return ContentService
       .createTextOutput(JSON.stringify({ok: true, items: []}))
@@ -266,6 +269,29 @@ function formatDate(v) {
     return Utilities.formatDate(v, 'America/Argentina/Buenos_Aires', 'dd/MM/yyyy');
   }
   return String(v);
+}
+
+// Encuentra la última fila *escrita* mirando columnas de datos reales
+// (A Contacto, B Cliente, K ID Presupuesto, V Internal ID). Evita el bug
+// de getLastRow() que se "estira" cuando hay validación, CF o formulas
+// vacías muchas filas abajo y el append cae lejos de la data real.
+function findLastWrittenRow_(sh) {
+  var primaryCols = [1, 2, 11, 22]; // A, B, K, V
+  var maxRow = sh.getMaxRows();
+  if (maxRow < 2) return 1;
+  var scanTo = Math.min(maxRow, 10000);
+  var minCol = Math.min.apply(null, primaryCols);
+  var maxCol = Math.max.apply(null, primaryCols);
+  var width = maxCol - minCol + 1;
+  var values = sh.getRange(2, minCol, scanTo - 1, width).getValues();
+  var offsets = primaryCols.map(function(c) { return c - minCol; });
+  for (var i = values.length - 1; i >= 0; i--) {
+    for (var k = 0; k < offsets.length; k++) {
+      var v = values[i][offsets[k]];
+      if (v !== '' && v !== null && v !== undefined) return i + 2;
+    }
+  }
+  return 1;
 }
 
 // ============================================================

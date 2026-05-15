@@ -325,7 +325,7 @@ function getSheet() {
 function nextIdPresupuesto() {
   const sheet = getSheet();
   const colIdx = HEADERS.indexOf('ID Presupuesto') + 1;
-  const lastRow = sheet.getLastRow();
+  const lastRow = findLastWrittenRow_(sheet);
   if (lastRow < 2) return 'P-2026-001';
 
   const values = sheet.getRange(2, colIdx, lastRow - 1, 1).getValues();
@@ -342,11 +342,43 @@ function nextIdPresupuesto() {
   return 'P-2026-' + String(next).padStart(3, '0');
 }
 
+// Encuentra la última fila *escrita* mirando columnas de datos reales
+// (Contacto, Cliente, ID Presupuesto, INTERNAL ID). Evita el bug de
+// `appendRow()` / `getLastRow()` que se "estiran" cuando hay validación,
+// formato condicional o formulas vacías muchas filas abajo.
+function findLastWrittenRow_(sheet) {
+  const primaryCols = [
+    HEADERS.indexOf('Contacto') + 1,            // A
+    HEADERS.indexOf('Cliente / Empresa') + 1,    // B
+    HEADERS.indexOf('ID Presupuesto') + 1,        // K
+    HEADERS.indexOf('INTERNAL ID') + 1            // V
+  ];
+  const maxRow = sheet.getMaxRows();
+  if (maxRow < 2) return 1;
+  const scanTo = Math.min(maxRow, 10000);
+  const minCol = Math.min.apply(null, primaryCols);
+  const maxCol = Math.max.apply(null, primaryCols);
+  const width = maxCol - minCol + 1;
+  const values = sheet.getRange(2, minCol, scanTo - 1, width).getValues();
+  const offsets = primaryCols.map(c => c - minCol);
+  for (let i = values.length - 1; i >= 0; i--) {
+    for (let k = 0; k < offsets.length; k++) {
+      const v = values[i][offsets[k]];
+      if (v !== '' && v !== null && v !== undefined) return i + 2;
+    }
+  }
+  return 1;
+}
+
 function appendRow(data) {
   const sheet = getSheet();
   const row = HEADERS.map(h => data[h] != null ? data[h] : '');
-  sheet.appendRow(row);
-  return sheet.getLastRow();
+  const target = findLastWrittenRow_(sheet) + 1;
+  if (target > sheet.getMaxRows()) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), 1);
+  }
+  sheet.getRange(target, 1, 1, row.length).setValues([row]);
+  return target;
 }
 
 // Actualiza la columna T ("Se agendo en Calendar?") de la fila que tenga
@@ -367,7 +399,7 @@ function updateCalendarUrlForPresupuesto(presupuestoId, calendarEventUrl) {
 
   // Hasta 6 reintentos × 1s = 6 seg de tolerancia para race condition con bound
   for (let attempt = 0; attempt < 6; attempt++) {
-    const lastRow = sheet.getLastRow();
+    const lastRow = findLastWrittenRow_(sheet);
     if (lastRow >= 2) {
       const ids = sheet.getRange(2, INTERNAL_ID_COL, lastRow - 1, 1).getValues();
       for (let i = 0; i < ids.length; i++) {

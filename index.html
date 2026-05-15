@@ -568,6 +568,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .pf-cal-btn:disabled{opacity:.35;cursor:not-allowed}
 .pf-cal-btn.primary{background:#1a2a44;color:#a8c6e8;border-color:#2a3a54}
 .pf-cal-btn.primary:hover:not(:disabled){background:#243657;border-color:#3a4a64}
+.pf-cal-btn.confirmado{background:#142a14;color:#a8d8a8;border-color:#244a24}
+.pf-cal-btn.confirmado:hover:not(:disabled){background:#1c3a1c;border-color:#346434}
 .pf-cal-confirmed{padding:8px 12px;border-left:3px solid #4a9b4a;background:#142a14;color:#f4efe6;font-size:12px;border-radius:3px;margin-top:6px;line-height:1.4}
 .pf-cal-confirmed a{color:#a8d8a8;text-decoration:underline}
 .pf-cal-empty{font-family:'NeueHaas',sans-serif;font-size:12px;color:var(--fg-dim);font-style:italic;padding:4px 0}
@@ -1200,15 +1202,27 @@ input,select,textarea{font-family:inherit;font-size:14px}
         <div id="pf-cal-suggest"></div>
         <div class="pf-cal-actions">
           <button class="pf-cal-btn primary" id="pf-cal-create-btn" type="button" onclick="crearPosibleEvent()">📅 Agendar como POSIBLE en LF Posibles</button>
+          <button class="pf-cal-btn confirmado" id="pf-cal-confirm-btn" type="button" onclick="abrirAgendadorConfirmado('pf')">✅ Agendar como CONFIRMADO en Agendador</button>
           <button class="pf-cal-btn" type="button" onclick="refreshCalendarMatches()">↻ Reintentar búsqueda</button>
         </div>
         <div id="pf-cal-confirmed"></div>
       </div>
 
       <div id="pf-confirm-hint" class="pf-confirm-hint"></div>
-      <div class="pdf-actions">
+      <div class="pdf-actions" id="pf-actions-precommit">
         <button class="pa-cancel" onclick="cerrarModalPdf()">Cancelar</button>
         <button class="pa-confirm" id="pf-confirm-btn" onclick="confirmarRegistroPdf()">Registrar en Sheet</button>
+      </div>
+
+      <!-- Panel post-registro: aparece cuando el row ya está escrito.
+           Ofrece próximos pasos (agendar CONFIRMADO + exportar resumen PDF). -->
+      <div id="pf-actions-postcommit" style="display:none">
+        <div class="pf-cal-confirmed" style="margin-top:12px"><strong>✅ Registrado en la Sheet.</strong> <span id="pf-postcommit-id"></span></div>
+        <div class="pdf-actions" style="flex-wrap:wrap">
+          <button class="pf-cal-btn confirmado" type="button" onclick="postCommitAgendarConfirmado()">✅ Agendar como CONFIRMADO en Agendador</button>
+          <button class="pf-cal-btn" type="button" onclick="postCommitExportarResumenPdf()">📄 Exportar resumen del lead (PDF)</button>
+          <button class="pa-cancel" onclick="cerrarModalPdf()">Cerrar</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1231,6 +1245,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
       <div id="gate-cal-suggest"></div>
       <div class="pf-cal-actions">
         <button class="pf-cal-btn primary" id="gate-cal-create-btn" type="button" onclick="gateCrearPosible()">📅 Agendar como POSIBLE en LF Posibles</button>
+        <button class="pf-cal-btn confirmado" id="gate-cal-confirm-btn" type="button" onclick="abrirAgendadorConfirmado('gate')">✅ Agendar como CONFIRMADO en Agendador</button>
         <button class="pf-cal-btn" type="button" onclick="refreshGateMatches()">↻ Reintentar búsqueda</button>
       </div>
       <div id="gate-cal-confirmed"></div>
@@ -3133,6 +3148,12 @@ function cerrarModalPdf() {
     document.removeEventListener('paste', _leadPasteListener);
     _leadPasteListener = null;
   }
+  // Reset del switch pre/post-commit para que el próximo lead arranque limpio.
+  const pre = document.getElementById('pf-actions-precommit');
+  const post = document.getElementById('pf-actions-postcommit');
+  if (pre) pre.style.display = 'flex';
+  if (post) post.style.display = 'none';
+  _pdfLastRegisteredData = null;
 }
 
 function setPdfStatus(msg, kind) {
@@ -3336,6 +3357,11 @@ function readPreviewForm() {
   };
 }
 
+// Guardamos los datos del último registro para poder ofrecer acciones
+// post-commit (agendar como CONFIRMADO en Agendador, exportar resumen PDF)
+// sin tener que volver a leer los inputs (que pueden haberse modificado).
+let _pdfLastRegisteredData = null;
+
 async function confirmarRegistroPdf() {
   const btn = document.getElementById('pf-confirm-btn');
   btn.disabled = true;
@@ -3358,7 +3384,18 @@ async function confirmarRegistroPdf() {
     const tag = res.mode === 'idempotent_hit' ? ' (ya estaba registrado)' : '';
     setPdfStatus(`✅ Registrado como ${res.data['ID Presupuesto']} en fila ${res.row}${tag}.`, 'ok');
     clearPendingPdf();
-    setTimeout(() => cerrarModalPdf(), 1800);
+    _pdfLastRegisteredData = Object.assign({}, confirmedData, res.data || {});
+    // Reemplazamos el bloque de acciones por el panel post-commit con
+    // próximos pasos (agendar CONFIRMADO + exportar resumen PDF). El
+    // usuario decide cuándo cerrar — antes el modal se auto-cerraba en 1.8s.
+    const pre = document.getElementById('pf-actions-precommit');
+    const post = document.getElementById('pf-actions-postcommit');
+    const idEl = document.getElementById('pf-postcommit-id');
+    if (idEl) idEl.textContent = res.data && res.data['ID Presupuesto']
+      ? `Quedó como ${res.data['ID Presupuesto']} en fila ${res.row}.`
+      : `Fila ${res.row}.`;
+    if (pre) pre.style.display = 'none';
+    if (post) post.style.display = 'block';
   } catch (err) {
     console.error(err);
     setPdfStatus(
@@ -3367,6 +3404,73 @@ async function confirmarRegistroPdf() {
     );
     btn.disabled = false;
   }
+}
+
+// Acción post-commit: handoff al Agendador con los datos recién registrados.
+function postCommitAgendarConfirmado() {
+  abrirAgendadorConfirmado('pf');
+}
+
+// Acción post-commit: genera un resumen PDF de 1 página con los datos del
+// lead recién registrado. Útil para mandar al equipo / cliente o archivar.
+function postCommitExportarResumenPdf() {
+  const d = _pdfLastRegisteredData;
+  if (!d) { alert('No hay datos para exportar.'); return; }
+
+  const row = (label, value) => value
+    ? `<tr><td style="padding:6px 10px;border-bottom:1px solid #ddd;color:#666;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;width:38%;vertical-align:top">${escapeHtml(label)}</td><td style="padding:6px 10px;border-bottom:1px solid #ddd;color:#111;font-size:13px">${escapeHtml(value)}</td></tr>`
+    : '';
+
+  const today = new Date();
+  const fechaImp = `${String(today.getDate()).padStart(2,'0')}/${String(today.getMonth()+1).padStart(2,'0')}/${today.getFullYear()}`;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;padding:32px;color:#111;max-width:780px;margin:auto">
+      <div style="border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:20px">
+        <div style="font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:#888">La Fondiatta · Catering &amp; Eventos</div>
+        <h1 style="margin:6px 0 2px;font-size:24px">Resumen de Lead — ${escapeHtml(d['ID Presupuesto'] || '')}</h1>
+        <div style="font-size:11px;color:#666">Impreso ${fechaImp}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        ${row('Cliente / Empresa', d['Cliente / Empresa'])}
+        ${row('Contacto', d['Contacto'])}
+        ${row('Teléfono / WhatsApp', d['Teléfono / WhatsApp'])}
+        ${row('Email', d['Email'])}
+        ${row('Nombre Evento', d['Nombre Evento'])}
+        ${row('Tipo de Evento', d['Tipo de Evento'])}
+        ${row('Fecha Evento', d['Fecha Evento'])}
+        ${row('Mes', d['Mes'])}
+        ${row('Cantidad Personas', d['Cantidad Personas'])}
+        ${row('Locación', d['Locación'])}
+        ${row('Vendedor', d['Vendedor'])}
+        ${row('Estado', d['Estado Presupuesto'])}
+        ${row('Canal de adquisición', d['Canal de adquisición'])}
+        ${row('Detalle Cotizado', d['Detalle Cotizado'])}
+        ${row('Observaciones', d['Observaciones'])}
+        ${row('Agendado en Calendar', d['Se agendo en Calendar?'])}
+      </table>
+      <div style="margin-top:24px;padding-top:14px;border-top:1px solid #ddd;font-size:10px;color:#999;text-align:right">
+        Generado desde el cotizador de La Fondiatta
+      </div>
+    </div>`;
+
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  document.body.appendChild(tmp);
+  const filename = `Lead ${d['ID Presupuesto'] || ''} ${d['Cliente / Empresa'] || ''}`.trim() + '.pdf';
+  html2pdf().set({
+    margin: 10,
+    filename: filename,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  }).from(tmp.firstElementChild).save().then(() => {
+    document.body.removeChild(tmp);
+  }).catch((err) => {
+    console.error(err);
+    document.body.removeChild(tmp);
+    alert('No se pudo exportar el PDF: ' + err.message);
+  });
 }
 
 // ==================================================================
@@ -3624,6 +3728,89 @@ function selectCalendarMatch(url, title, autoSelected, choiceKind) {
     `<div class="pf-cal-confirmed">${tag}: <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(title)}</a></div>`;
   renderSuggestBanner(false);
   applyChoiceLock();
+}
+
+// URL pública del Agendador (Vercel). Cuando el cotizador decide que el lead
+// va a ser CONFIRMADO, hace handoff abriendo el Agendador con la data del
+// presupuesto prefilled en su tab "manual" — así la ficha que cae en Calendar
+// queda con la estructura homogénea del Agendador (con menús, timing, etc).
+const AGENDADOR_URL = 'https://agendador-lf.vercel.app/nuevo';
+
+// Mapea valores del cotizador → TipoAgenda del Agendador. Pasamos el label tal
+// cual y el agendador lo normaliza, pero acortamos los casos obvios.
+function mapTipoCotizadorParaAgendador(tipo) {
+  const t = (tipo || '').toLowerCase().trim();
+  if (!t) return '';
+  if (/casamiento/.test(t)) return 'CASAMIENTO';
+  if (/civil/.test(t)) return 'CIVIL';
+  if (/social/.test(t)) return 'EVENTO_SOCIAL';
+  if (/entrega/.test(t)) return 'ENTREGA_CORPO';
+  if (/corporativ|almuerzo|desayuno|merienda|after|cena|catering/.test(t)) return 'EVENTO_CORPORATIVO';
+  return tipo; // dejamos que el agendador haga su mapeo
+}
+
+// Junta los datos del presupuesto y abre el Agendador en una nueva pestaña con
+// prefill por querystring. `scope` = 'pf' (modal Cargar lead) | 'gate' (modal
+// pre-export del presupuesto armado).
+function abrirAgendadorConfirmado(scope) {
+  let nombre, fechaTexto, pax, contactoNombre, contactoTel, tipo, locacion, vendedor, horarioInicio, horarioFin;
+
+  if (scope === 'pf') {
+    nombre        = (document.getElementById('pf-empresa').value || '').trim()
+                  || (document.getElementById('pf-nombre-evento').value || '').trim()
+                  || (document.getElementById('pf-contacto').value || '').trim();
+    fechaTexto    = (document.getElementById('pf-fecha-evento').value || '').trim();
+    pax           = (document.getElementById('pf-pax').value || '').trim();
+    contactoNombre= (document.getElementById('pf-contacto').value || '').trim();
+    contactoTel   = (document.getElementById('pf-telefono').value || '').trim();
+    tipo          = (document.getElementById('pf-tipo').value || '').trim();
+    locacion      = (document.getElementById('pf-locacion').value || '').trim();
+    vendedor      = (document.getElementById('pf-vendedor').value || '').trim();
+    horarioInicio = '';
+    horarioFin    = '';
+  } else {
+    // scope === 'gate' → presupuesto armado en la app, usamos los campos del sidebar
+    nombre        = (document.getElementById('f-company').value || '').trim()
+                  || (document.getElementById('f-event-name').value || '').trim()
+                  || (document.getElementById('f-name').value || '').trim();
+    fechaTexto    = (document.getElementById('f-event-date').value || '').trim();
+    pax           = (document.getElementById('f-pax').value || '').trim();
+    contactoNombre= (document.getElementById('f-name').value || '').trim();
+    contactoTel   = (document.getElementById('f-phone').value || '').trim();
+    tipo          = (document.getElementById('f-type').value || '').trim();
+    locacion      = (document.getElementById('f-address').value || '').trim();
+    vendedor      = (document.getElementById('f-vendor').value || '').trim();
+    horarioInicio = (document.getElementById('f-event-start').value || '').trim();
+    horarioFin    = (document.getElementById('f-event-end').value || '').trim();
+  }
+
+  if (!fechaTexto) {
+    alert('Cargá la fecha del evento antes de abrir el Agendador.');
+    return;
+  }
+
+  const params = new URLSearchParams();
+  if (nombre)         params.set('nombre', nombre);
+  if (fechaTexto)     params.set('fecha', fechaTexto);
+  if (pax)            params.set('pax', pax);
+  if (contactoNombre) params.set('contactoNombre', contactoNombre);
+  if (contactoTel)    params.set('contactoTel', contactoTel);
+  const tipoMapped = mapTipoCotizadorParaAgendador(tipo);
+  if (tipoMapped)     params.set('tipo', tipoMapped);
+  if (locacion)       params.set('locacion', locacion);
+  if (vendedor)       params.set('vendedor', vendedor);
+  if (horarioInicio)  params.set('horarioInicio', horarioInicio);
+  if (horarioFin)     params.set('horarioFin', horarioFin);
+
+  // Marcamos el botón como "abierto" para que Santi sepa que el handoff se hizo.
+  const btn = document.getElementById(scope === 'pf' ? 'pf-cal-confirm-btn' : 'gate-cal-confirm-btn');
+  if (btn) {
+    const original = btn.textContent;
+    btn.textContent = '↗ Abierto en Agendador · completá menús y timing';
+    setTimeout(() => { btn.textContent = original; }, 5000);
+  }
+
+  window.open(`${AGENDADOR_URL}?${params.toString()}`, '_blank', 'noopener');
 }
 
 async function crearPosibleEvent() {

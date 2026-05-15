@@ -575,6 +575,14 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .pf-cal-empty{font-family:'NeueHaas',sans-serif;font-size:12px;color:var(--fg-dim);font-style:italic;padding:4px 0}
 .pf-cal-suggest{padding:10px 14px;border-left:3px solid #4a9b4a;background:#142a14;color:#f4efe6;font-size:12px;border-radius:3px;margin:10px 0 4px;line-height:1.5}
 .pf-cal-suggest strong{color:#a8d8a8}
+.pf-cal-multi-box{padding:10px 14px;border-left:3px solid #d4a449;background:#2a2412;color:#f4efe6;font-size:12px;border-radius:3px;margin:10px 0;line-height:1.5}
+.pf-cal-multi-intro{margin-bottom:8px}
+.pf-cal-multi-intro strong{color:#e8c878}
+.pf-cal-multi-chips{display:flex;flex-wrap:wrap;gap:6px}
+.pf-cal-multi-chip{display:inline-block;padding:4px 10px;border:1px solid var(--border);border-radius:14px;font-family:'NeueHaas',sans-serif;font-size:11px;color:var(--fg);background:rgba(255,255,255,0.04);text-decoration:none}
+.pf-cal-multi-chip.ok{border-color:#4a9b4a;background:#142a14;color:#a8d8a8}
+.pf-cal-multi-chip.ok:hover{background:#1c3a1c}
+.pf-cal-multi-chip.err{border-color:#b34a4a;background:#2a1414;color:#d8a8a8}
 .pf-confirm-hint{display:none;font-family:'NeueHaas',sans-serif;font-size:11px;color:#d4a449;padding:8px 12px;border-left:3px solid #d4a449;background:#2a2412;border-radius:3px;margin-top:14px}
 .pdf-actions{display:flex;gap:10px;margin-top:12px}
 .pdf-actions button{flex:1;padding:12px 18px;border-radius:4px;font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;cursor:pointer;border:1px solid var(--border);transition:all .15s}
@@ -1197,6 +1205,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
           <div class="pf-cal-title">📅 Calendar · match y seguimiento</div>
           <div class="pf-cal-status" id="pf-cal-status">Buscando eventos…</div>
         </div>
+        <div id="pf-cal-multi"></div>
         <div id="pf-cal-warn"></div>
         <div id="pf-cal-options"></div>
         <div id="pf-cal-suggest"></div>
@@ -3016,10 +3025,12 @@ updateSessionBadge();
 let _pdfExtracted = null;
 let _pdfFilename = '';
 let _pdfIdempotencyKey = '';
-let _pdfCalendarEventUrl = '';   // evento Calendar linkeado/creado
+let _pdfCalendarEventUrl = '';   // evento Calendar linkeado/creado (single-fecha)
 let _pdfCalendarEventTitle = ''; // título del evento linkeado (para mostrar)
 let _pdfCalendarLastSearch = null; // último resultado de searchCalendar (para no repetir)
 let _pdfCalendarChoice = 'pending'; // 'pending' | 'linked' | 'posible' | 'none' — fuerza decisión antes de registrar
+let _pdfFechasIndividuales = []; // multi-jornada: N fechas de la misma propuesta (D/M/YYYY)
+let _pdfCalendarEventUrls = []; // multi-jornada: N URLs de Calendar (paralelo a _pdfFechasIndividuales)
 let _leadPasteListener = null;
 
 const PDF_PENDING_KEY = 'lf_pdf_pending_v1';
@@ -3327,6 +3338,13 @@ function fillPreviewForm(d) {
   set('pf-detalle',         d['Detalle Cotizado']);
   set('pf-canal',           d['Canal de adquisición']);
   set('pf-observaciones',   d['Observaciones']);
+
+  // Multi-jornada: si Gemini detectó N fechas de la misma propuesta,
+  // las guardamos para que crearPosibleEvent cree N posibles a la vez.
+  _pdfFechasIndividuales = Array.isArray(d.fechas_individuales)
+    ? d.fechas_individuales.filter(s => s && s.trim())
+    : [];
+  _pdfCalendarEventUrls = [];
 }
 
 function readPreviewForm() {
@@ -3373,13 +3391,20 @@ async function confirmarRegistroPdf() {
   savePendingPdf(confirmedData, _pdfIdempotencyKey, _pdfFilename);
 
   try {
-    const res = await callPdfEndpointWithRetry({
+    const payload = {
       filename: _pdfFilename,
       confirmedData,
       idempotencyKey: _pdfIdempotencyKey,
       calendarEventUrl: _pdfCalendarEventUrl || '',
       dryRun: false
-    });
+    };
+    // Multi-jornada: mandar el array de N URLs (uno por fecha). El backend
+    // las joinea con \n y las guarda en la columna "Se agendo en Calendar?".
+    const validUrls = _pdfCalendarEventUrls.filter(Boolean);
+    if (validUrls.length > 1) {
+      payload.calendarEventUrls = validUrls;
+    }
+    const res = await callPdfEndpointWithRetry(payload);
     if (!res.ok) throw new Error(res.error || 'Error desconocido');
     const tag = res.mode === 'idempotent_hit' ? ' (ya estaba registrado)' : '';
     setPdfStatus(`✅ Registrado como ${res.data['ID Presupuesto']} en fila ${res.row}${tag}.`, 'ok');
@@ -3492,6 +3517,8 @@ function resetCalendarSection() {
   _pdfCalendarEventTitle = '';
   _pdfCalendarLastSearch = null;
   _pdfCalendarChoice = 'pending';
+  _pdfFechasIndividuales = [];
+  _pdfCalendarEventUrls = [];
   const sec = document.getElementById('pf-cal');
   if (!sec) return;
   document.getElementById('pf-cal-status').textContent = '';
@@ -3500,6 +3527,8 @@ function resetCalendarSection() {
   document.getElementById('pf-cal-options').innerHTML = '';
   document.getElementById('pf-cal-confirmed').innerHTML = '';
   document.getElementById('pf-cal-suggest').innerHTML = '';
+  const multiEl = document.getElementById('pf-cal-multi');
+  if (multiEl) multiEl.innerHTML = '';
   const btn = document.getElementById('pf-cal-create-btn');
   if (btn) { btn.disabled = false; btn.textContent = '📅 Agendar como POSIBLE en LF Posibles'; }
   applyChoiceLock();
@@ -3544,15 +3573,33 @@ async function refreshCalendarMatches() {
   const warnEl = document.getElementById('pf-cal-warn');
   const optsEl = document.getElementById('pf-cal-options');
   const createBtn = document.getElementById('pf-cal-create-btn');
+  const multiEl = document.getElementById('pf-cal-multi');
 
   warnEl.innerHTML = '';
   optsEl.innerHTML = '';
   document.getElementById('pf-cal-confirmed').innerHTML = '';
   document.getElementById('pf-cal-suggest').innerHTML = '';
+  if (multiEl) multiEl.innerHTML = '';
   _pdfCalendarChoice = 'pending';
   _pdfCalendarEventUrl = '';
   _pdfCalendarEventTitle = '';
   applyChoiceLock();
+
+  // Multi-jornada: si Gemini detectó N fechas de la misma propuesta (ej VIP
+  // Coliseo × 4 miércoles de junio), saltamos searchCalendar (que solo soporta
+  // una fecha) y pintamos UI dedicada con los chips de las N fechas.
+  if (_pdfFechasIndividuales.length > 1) {
+    renderMultiFechasUI();
+    statusEl.textContent = `Multi-jornada: ${_pdfFechasIndividuales.length} fechas detectadas.`;
+    statusEl.className = 'pf-cal-status';
+    createBtn.disabled = false;
+    createBtn.title = '';
+    createBtn.textContent = `📅 Agendar ${_pdfFechasIndividuales.length} POSIBLES en LF Posibles`;
+    // En multi-jornada no forzamos elección — el usuario decide si agenda o no
+    // con el botón. Mientras tanto, dejamos opciones explícitas.
+    renderNoneOption(optsEl, `Son ${_pdfFechasIndividuales.length} fechas. Podés agendarlas todas como POSIBLES, o registrar sin Calendar.`);
+    return;
+  }
 
   if (!fechaEvento) {
     statusEl.textContent = 'Sin fecha del evento — no puedo agendar como POSIBLE hasta tenerla.';
@@ -3802,6 +3849,22 @@ function abrirAgendadorConfirmado(scope) {
   if (horarioInicio)  params.set('horarioInicio', horarioInicio);
   if (horarioFin)     params.set('horarioFin', horarioFin);
 
+  // Handoff de identidad del lead — para que el Agendador haga update en el
+  // Sheet de Seguimiento al confirmar, en vez de crear una fila nueva.
+  // - scope 'pf' (modal Cargar lead): tenemos el ID humano P-2026-NNN
+  //   recién devuelto por el backend al registrar el PDF.
+  // - scope 'gate' (presupuesto armado): solo tenemos el internalId (p_xxx)
+  //   de localStorage; el bound mapea V → fila.
+  if (scope === 'pf') {
+    const idHumano = (_pdfLastRegisteredData && _pdfLastRegisteredData['ID Presupuesto']) || '';
+    if (idHumano) params.set('leadId', idHumano);
+  } else {
+    try {
+      const internal = localStorage.getItem(PRESU_ID_KEY) || '';
+      if (internal) params.set('internalId', internal);
+    } catch (e) {}
+  }
+
   // Marcamos el botón como "abierto" para que Santi sepa que el handoff se hizo.
   const btn = document.getElementById(scope === 'pf' ? 'pf-cal-confirm-btn' : 'gate-cal-confirm-btn');
   if (btn) {
@@ -3814,10 +3877,15 @@ function abrirAgendadorConfirmado(scope) {
 }
 
 async function crearPosibleEvent() {
-  const fechaEvento = (document.getElementById('pf-fecha-evento').value || '').trim();
   const cliente = (document.getElementById('pf-empresa').value || 'Sin cliente').trim();
   const pax = (document.getElementById('pf-pax').value || '').trim();
 
+  // Multi-jornada: crear N POSIBLES de una vez (uno por fecha de _pdfFechasIndividuales)
+  if (_pdfFechasIndividuales.length > 1) {
+    return crearPosibleEventsMulti(cliente, pax);
+  }
+
+  const fechaEvento = (document.getElementById('pf-fecha-evento').value || '').trim();
   if (!fechaEvento) {
     alert('Cargá la "Fecha Evento" antes de agendar.');
     return;
@@ -3848,6 +3916,82 @@ async function crearPosibleEvent() {
     btn.disabled = false;
     alert('No se pudo crear el evento POSIBLE: ' + err.message);
   }
+}
+
+// Multi-jornada: crea N POSIBLES en una sola llamada. El backend (createPosibleEvents
+// plural) devuelve un array de eventos en el mismo orden que `_pdfFechasIndividuales`.
+// Si alguna fecha falla individual (no parsea), seguimos con el resto y mostramos
+// los errores junto a las URLs OK en la sección de chips.
+async function crearPosibleEventsMulti(cliente, pax) {
+  const btn = document.getElementById('pf-cal-create-btn');
+  const N = _pdfFechasIndividuales.length;
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = `Creando ${N} POSIBLES…`;
+
+  try {
+    const res = await callPdfEndpoint({
+      action: 'createPosibleEvents',
+      fechas: _pdfFechasIndividuales.slice(),
+      cliente: cliente || 'Sin cliente',
+      pax
+    });
+    if (!res.ok) throw new Error(res.error || 'Error en createPosibleEvents');
+    const events = Array.isArray(res.events) ? res.events : [];
+    _pdfCalendarEventUrls = events.map(e => (e && e.ok ? e.url : ''));
+    // En multi-jornada marcamos el choice como 'posible' para destrabar el
+    // botón de Registrar. La URL singular queda con el primer evento OK
+    // (compat con _pdfCalendarEventUrl), pero al registrar mandamos el array.
+    const firstOk = events.find(e => e && e.ok);
+    if (firstOk) {
+      _pdfCalendarEventUrl = firstOk.url;
+      _pdfCalendarEventTitle = firstOk.title || '';
+      _pdfCalendarChoice = 'posible';
+      applyChoiceLock();
+    }
+    renderMultiFechasUI(events);
+    const okCount = events.filter(e => e && e.ok).length;
+    const failCount = N - okCount;
+    btn.textContent = failCount
+      ? `⚠ ${okCount}/${N} POSIBLES creados`
+      : `✓ ${okCount} POSIBLES creados en LF Posibles`;
+    setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2200);
+  } catch (err) {
+    console.error(err);
+    btn.textContent = originalText;
+    btn.disabled = false;
+    alert('No se pudieron crear los POSIBLES: ' + err.message);
+  }
+}
+
+// Pinta los chips de fechas detectadas. Si recibimos `events` (post-creación),
+// cada chip linkea al evento de Calendar. Sin `events` (estado inicial),
+// solo muestra las fechas detectadas con un sub-texto explicativo.
+function renderMultiFechasUI(events) {
+  const el = document.getElementById('pf-cal-multi');
+  if (!el) return;
+  if (_pdfFechasIndividuales.length <= 1) { el.innerHTML = ''; return; }
+
+  const chips = _pdfFechasIndividuales.map((f, i) => {
+    const ev = events && events[i];
+    if (ev && ev.ok && ev.url) {
+      return `<a class="pf-cal-multi-chip ok" href="${escapeAttr(ev.url)}" target="_blank" rel="noopener" title="${escapeAttr(ev.title || '')}">✓ ${escapeHtml(f)}</a>`;
+    }
+    if (ev && !ev.ok) {
+      return `<span class="pf-cal-multi-chip err" title="${escapeAttr(ev.error || '')}">⚠ ${escapeHtml(f)}</span>`;
+    }
+    return `<span class="pf-cal-multi-chip">${escapeHtml(f)}</span>`;
+  }).join('');
+
+  const intro = events
+    ? `<strong>${_pdfFechasIndividuales.length} POSIBLES procesados.</strong> Tocá cada chip para abrir el evento en Calendar.`
+    : `<strong>Multi-jornada detectada · ${_pdfFechasIndividuales.length} fechas.</strong> Vas a agendar un POSIBLE por cada una. Al registrar, todos los links quedan en la columna "Se agendo en Calendar?" del Sheet.`;
+
+  el.innerHTML =
+    '<div class="pf-cal-multi-box">' +
+    '<div class="pf-cal-multi-intro">' + intro + '</div>' +
+    '<div class="pf-cal-multi-chips">' + chips + '</div>' +
+    '</div>';
 }
 
 function formatHora(iso) {

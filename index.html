@@ -584,6 +584,9 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .pf-cal-multi-chip.ok:hover{background:#1c3a1c}
 .pf-cal-multi-chip.err{border-color:#b34a4a;background:#2a1414;color:#d8a8a8}
 .pf-confirm-hint{display:none;font-family:'NeueHaas',sans-serif;font-size:11px;color:#d4a449;padding:8px 12px;border-left:3px solid #d4a449;background:#2a2412;border-radius:3px;margin-top:14px}
+.pf-sheet-state{font-family:'NeueHaas',sans-serif;font-size:13px;font-weight:600;padding:13px 15px;border-radius:4px;margin:0 0 18px;line-height:1.45;border-left:4px solid #d4a449;background:#2a2412;color:#e8c878}
+.pf-sheet-state.ok{border-left-color:#4a9b4a;background:#142a14;color:#bfe6bf}
+.pf-sheet-state strong{font-weight:800}
 .pdf-actions{display:flex;gap:10px;margin-top:12px}
 .pdf-actions button{flex:1;padding:12px 18px;border-radius:4px;font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;cursor:pointer;border:1px solid var(--border);transition:all .15s}
 .pdf-actions .pa-cancel{background:transparent;color:var(--fg-dim)}
@@ -1152,6 +1155,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
     <div class="pdf-preview-form" id="pdf-preview-form">
       <h4 style="margin-top:0">Datos extraídos · revisá antes de confirmar</h4>
+      <div class="pf-sheet-state" id="pf-sheet-state">⚠️ Este lead <strong>TODAVÍA NO</strong> está cargado en el Sheet. Agendar como POSIBLE <strong>no</strong> lo registra — tocá «Registrar en Sheet» abajo para que cuente como lead.</div>
       <div class="pf-grid">
         <div class="pf-field"><label>Contacto</label><input type="text" id="pf-contacto"></div>
         <div class="pf-field"><label>Cliente / Empresa</label><input type="text" id="pf-empresa"></div>
@@ -3173,6 +3177,24 @@ function setPdfStatus(msg, kind) {
   el.className = 'pdf-status ' + (kind || 'info');
 }
 
+// Cartel fijo que SIEMPRE dice la verdad sobre el estado del lead en el Sheet.
+// Es independiente de lo que pase con Calendar/POSIBLE: agendar un POSIBLE NO
+// registra el lead, y este cartel deja eso explícito hasta que se registra.
+function setSheetState(registered, idText) {
+  const el = document.getElementById('pf-sheet-state');
+  if (!el) return;
+  if (registered) {
+    el.classList.add('ok');
+    el.innerHTML = '✅ <strong>Lead cargado en el Sheet de Seguimiento.</strong> '
+      + (idText ? escapeHtml(idText) : '');
+  } else {
+    el.classList.remove('ok');
+    el.innerHTML = '⚠️ Este lead <strong>TODAVÍA NO</strong> está cargado en el Sheet. '
+      + 'Agendar como POSIBLE <strong>no</strong> lo registra — tocá «Registrar en Sheet» '
+      + 'abajo para que cuente como lead.';
+  }
+}
+
 function switchLeadTab(tab) {
   document.querySelectorAll('.lead-tab').forEach(b => {
     b.classList.toggle('active', b.dataset.leadTab === tab);
@@ -3345,6 +3367,8 @@ function fillPreviewForm(d) {
     ? d.fechas_individuales.filter(s => s && s.trim())
     : [];
   _pdfCalendarEventUrls = [];
+  // Cada lead nuevo arranca SIN registrar — cartel en ámbar hasta que se registre.
+  setSheetState(false);
 }
 
 function readPreviewForm() {
@@ -3416,9 +3440,11 @@ async function confirmarRegistroPdf() {
     const pre = document.getElementById('pf-actions-precommit');
     const post = document.getElementById('pf-actions-postcommit');
     const idEl = document.getElementById('pf-postcommit-id');
-    if (idEl) idEl.textContent = res.data && res.data['ID Presupuesto']
+    const idTxt = res.data && res.data['ID Presupuesto']
       ? `Quedó como ${res.data['ID Presupuesto']} en fila ${res.row}.`
       : `Fila ${res.row}.`;
+    if (idEl) idEl.textContent = idTxt;
+    setSheetState(true, idTxt);
     if (pre) pre.style.display = 'none';
     if (post) post.style.display = 'block';
   } catch (err) {
@@ -3907,9 +3933,11 @@ async function crearPosibleEvent() {
     const ev = res.event;
     selectCalendarMatch(ev.url, ev.title, false, 'posible');
     btn.textContent = ev.alreadyExisted ? '✓ Reutilizado POSIBLE existente' : '✓ POSIBLE creado en LF Posibles';
-    // Refrescamos la lista para reflejar que ahora existe (sin resetear el choice,
-    // refreshCalendarMatches lo va a re-pickear como posibleExisting).
-    setTimeout(() => { btn.textContent = originalText; refreshCalendarMatches(); }, 1500);
+    btn.disabled = true;
+    // NO re-corremos refreshCalendarMatches: reseteaba _pdfCalendarChoice a
+    // 'pending' y volvía a trabar "Registrar en Sheet" dependiendo de un
+    // re-match frágil del POSIBLE recién creado. El choice ya quedó en
+    // 'posible' (lo setea selectCalendarMatch) → "Registrar en Sheet" habilitado.
   } catch (err) {
     console.error(err);
     btn.textContent = originalText;

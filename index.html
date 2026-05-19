@@ -593,6 +593,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .pdf-actions .pa-cancel:hover{color:var(--fg);border-color:var(--fg-dim)}
 .pdf-actions .pa-confirm{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .pdf-actions .pa-confirm:hover{opacity:.85}
+.pdf-actions .pa-skip{background:transparent;color:#e8c878;border-color:#7a6a3a}
+.pdf-actions .pa-skip:hover{background:#2a2412;border-color:#d4a449}
 .pdf-actions button:disabled{opacity:.4;cursor:not-allowed}
 </style>
 </head>
@@ -1224,6 +1226,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
       <div id="pf-confirm-hint" class="pf-confirm-hint"></div>
       <div class="pdf-actions" id="pf-actions-precommit">
         <button class="pa-cancel" onclick="cerrarModalPdf()">Cancelar</button>
+        <button class="pa-skip" id="pf-skip-btn" onclick="soloRegistrarLead()" title="Carga el lead en el Sheet sin tocar Calendar — no hace falta decidir POSIBLE">Solo registrar en el Sheet</button>
         <button class="pa-confirm" id="pf-confirm-btn" onclick="confirmarRegistroPdf()">Registrar en Sheet</button>
       </div>
 
@@ -3404,6 +3407,23 @@ function readPreviewForm() {
 // sin tener que volver a leer los inputs (que pueden haberse modificado).
 let _pdfLastRegisteredData = null;
 
+// Escape hatch: registrar el lead en el Sheet sin pasar por la decisión de
+// Calendar. Algunos leads no necesitan agendarse como POSIBLE — esto evita
+// que "Registrar en Sheet" quede trabado esperando esa decisión.
+// Si el usuario YA eligió un POSIBLE/link, lo respetamos (no lo pisamos);
+// solo forzamos 'none' cuando todavía no decidió nada (pending).
+async function soloRegistrarLead() {
+  if (_pdfCalendarChoice === 'pending') {
+    _pdfCalendarChoice = 'none';
+    _pdfCalendarEventUrl = '';
+    _pdfCalendarEventTitle = '';
+    applyChoiceLock();
+  }
+  const skip = document.getElementById('pf-skip-btn');
+  if (skip) skip.disabled = true;
+  await confirmarRegistroPdf();
+}
+
 async function confirmarRegistroPdf() {
   const btn = document.getElementById('pf-confirm-btn');
   btn.disabled = true;
@@ -3569,7 +3589,7 @@ function applyChoiceLock() {
   if (!btn || !hint) return;
   if (_pdfCalendarChoice === 'pending') {
     btn.disabled = true;
-    hint.textContent = 'Decidí arriba qué hacer con el seguimiento en Calendar antes de registrar.';
+    hint.textContent = 'Decidí arriba qué hacer con Calendar, o tocá «Solo registrar en el Sheet» para cargarlo sin agendar.';
     hint.style.display = 'block';
   } else {
     btn.disabled = false;

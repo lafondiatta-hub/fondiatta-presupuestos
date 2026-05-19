@@ -587,6 +587,11 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .pf-sheet-state{font-family:'NeueHaas',sans-serif;font-size:13px;font-weight:600;padding:13px 15px;border-radius:4px;margin:0 0 18px;line-height:1.45;border-left:4px solid #d4a449;background:#2a2412;color:#e8c878}
 .pf-sheet-state.ok{border-left-color:#4a9b4a;background:#142a14;color:#bfe6bf}
 .pf-sheet-state strong{font-weight:800}
+.pf-help{font-family:'NeueHaas',sans-serif;font-size:11.5px;line-height:1.55;color:var(--fg-dim);background:#141414;border:1px solid var(--border);border-radius:4px;padding:11px 14px;margin-top:14px}
+.pf-help .ph-t{display:block;font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--fg-dim);margin-bottom:8px}
+.pf-help ul{margin:0;padding:0;list-style:none}
+.pf-help li{margin:6px 0}
+.pf-help b{color:var(--fg);font-weight:700}
 .pdf-actions{display:flex;gap:10px;margin-top:12px}
 .pdf-actions button{flex:1;padding:12px 18px;border-radius:4px;font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;cursor:pointer;border:1px solid var(--border);transition:all .15s}
 .pdf-actions .pa-cancel{background:transparent;color:var(--fg-dim)}
@@ -1224,6 +1229,15 @@ input,select,textarea{font-family:inherit;font-size:14px}
       </div>
 
       <div id="pf-confirm-hint" class="pf-confirm-hint"></div>
+      <div class="pf-help">
+        <span class="ph-t">¿Qué hace cada botón?</span>
+        <ul>
+          <li><b>Agendar como POSIBLE</b> — crea un evento tentativo en el Calendar «LF Posibles» para no perder el seguimiento. Opcional, no confirma nada.</li>
+          <li><b>Agendar como CONFIRMADO</b> — abre el Agendador para cargar el evento ya cerrado (con menús y horarios) en el Calendar de Eventos LF. Opcional.</li>
+          <li><b>Solo registrar en el Sheet</b> — carga el lead y listo, sin tocar Calendar. El camino rápido.</li>
+          <li><b>Registrar en Sheet</b> — carga el lead; si arriba elegiste un POSIBLE o lo linkeaste a un evento, guarda también ese vínculo.</li>
+        </ul>
+      </div>
       <div class="pdf-actions" id="pf-actions-precommit">
         <button class="pa-cancel" onclick="cerrarModalPdf()">Cancelar</button>
         <button class="pa-skip" id="pf-skip-btn" onclick="soloRegistrarLead()" title="Carga el lead en el Sheet sin tocar Calendar — no hace falta decidir POSIBLE">Solo registrar en el Sheet</button>
@@ -3580,22 +3594,15 @@ function resetCalendarSection() {
   applyChoiceLock();
 }
 
-// Habilita/deshabilita el botón "Registrar en Sheet" según _pdfCalendarChoice.
-// Mientras la elección esté pending, el usuario NO puede registrar — fuerza
-// que decida activamente si linkea, agenda como POSIBLE, o registra sin Calendar.
+// Sin gate: cada comercial decide si usa Calendar o no. "Registrar en Sheet"
+// queda SIEMPRE habilitado. La explicación de qué hace cada botón vive en el
+// panel .pf-help del modal. Se mantiene la función (la llaman varios lugares)
+// pero solo garantiza que el botón esté habilitado y el hint viejo oculto.
 function applyChoiceLock() {
   const btn = document.getElementById('pf-confirm-btn');
   const hint = document.getElementById('pf-confirm-hint');
-  if (!btn || !hint) return;
-  if (_pdfCalendarChoice === 'pending') {
-    btn.disabled = true;
-    hint.textContent = 'Decidí arriba qué hacer con Calendar, o tocá «Solo registrar en el Sheet» para cargarlo sin agendar.';
-    hint.style.display = 'block';
-  } else {
-    btn.disabled = false;
-    hint.textContent = '';
-    hint.style.display = 'none';
-  }
+  if (btn) btn.disabled = false;
+  if (hint) { hint.textContent = ''; hint.style.display = 'none'; }
 }
 
 // Banner sugerente (A): aparece cuando no hay match y el usuario no eligió

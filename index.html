@@ -95,6 +95,27 @@ input,select,textarea{font-family:inherit;font-size:14px}
   color:#fff;
   border-color:var(--danger);
 }
+.sidebar header .btn-ficha{
+  grid-column:1 / -1;
+  background:rgba(244,239,230,0.04);
+  color:var(--fg);
+  border:1px solid var(--fg-dim);
+}
+.sidebar header .btn-ficha:hover{
+  background:rgba(244,239,230,0.09);
+  border-color:var(--fg);
+}
+.ficha-lead-banner{
+  border:1px solid var(--fg-dim);
+  border-radius:6px;
+  padding:12px 14px;
+  margin-bottom:12px;
+  background:rgba(244,239,230,0.04);
+}
+.ficha-lead-banner .flb-title{font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--fg);margin-bottom:6px}
+.ficha-lead-banner .flb-text{font-size:11px;line-height:1.5;color:var(--fg-dim)}
+.ficha-lead-banner .flb-check{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:11px;color:var(--fg-dim);cursor:pointer}
+.ficha-lead-banner .flb-check input{accent-color:var(--fg)}
 
 .section{margin-bottom:28px}
 .section h2{font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--fg);margin-bottom:12px;display:flex;align-items:center;gap:8px}
@@ -618,6 +639,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
       <div class="header-actions">
         <button class="btn-load-previo" onclick="abrirModalPrevios()" title="Buscá un presupuesto anterior y cargalo para editarlo">📂 Cargar previo</button>
         <button class="btn-load-previo" onclick="abrirModalPdf()" title="Cargá un lead (PDF, imagen o texto) y lo registramos automáticamente en el Sheet de seguimiento">📥 Cargar lead</button>
+        <button class="btn-load-previo btn-ficha" onclick="abrirModalFicha()" title="Pegá la ficha del Agendador y solo llena los datos del presupuesto — NO toca el Sheet (el lead ya está registrado)">📋 Pegar ficha del Agendador</button>
         <button class="btn-reset-top" onclick="resetAll()" title="Borra todos los datos y crea un presupuesto nuevo">↺ Empezar de cero</button>
       </div>
     </header>
@@ -877,6 +899,11 @@ input,select,textarea{font-family:inherit;font-size:14px}
       </div>
     </div>
 
+    <div id="ficha-lead-banner" class="ficha-lead-banner" style="display:none">
+      <div class="flb-title">📋 Lead ya agendado desde el Agendador</div>
+      <div class="flb-text">Al exportar se descarga el PDF y <strong>no</strong> se vuelve a registrar en el Sheet (evita el duplicado, porque el lead ya está cargado).</div>
+      <label class="flb-check"><input type="checkbox" id="ficha-registrar-igual"> Registrar igual en el Sheet (ojo: crea fila nueva)</label>
+    </div>
     <div class="actions">
       <button class="btn" id="btn-primary" onclick="handlePrimaryAction()">Exportar PDF</button>
       <button class="btn secondary" id="btn-cierre-canva" onclick="exportCierre()" title="Genera 1 página A4 horizontal (datos cliente + precios + condiciones) lista para insertar como última slide del deck Canva">📐 Cierre para Canva</button>
@@ -1252,6 +1279,20 @@ input,select,textarea{font-family:inherit;font-size:14px}
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- MODAL: Pegar ficha del Agendador (solo llena el form, NO toca el Sheet) -->
+<div class="modal-backdrop" id="ficha-modal" data-backdrop-close="cerrarModalFicha">
+  <div class="modal-box" style="max-width:680px">
+    <button class="m-close-x" onclick="cerrarModalFicha()" aria-label="Cerrar">×</button>
+    <h3>Pegar ficha del <em>Agendador</em></h3>
+    <div class="m-sub">El lead ya está registrado en el Sheet desde el Agendador. Esto <strong>solo</strong> completa los datos del presupuesto (contacto, fecha, pax, horarios, locación) para que armes el monto. <strong>No</strong> escribe nada en el Sheet ni en Calendar.</div>
+    <div class="lead-text-wrap" style="margin-top:14px">
+      <textarea id="ficha-text-input" rows="10" placeholder="Pegá la FICHA EVENTO tal cual te la pasa el Agendador. Ej:&#10;&#10;📋 FICHA EVENTO&#10;Evento: Juani Correas (35p)&#10;Contacto: Mariana González Videla / 1169772445&#10;Vendedor: SC&#10;Fecha: domingo 28 de junio de 2026&#10;Personas: 35&#10;Locación: Aconcagua 300, Maschwitz&#10;Inicio: 13:00&#10;Fin: 17:00"></textarea>
+      <button type="button" class="lead-text-submit" onclick="llenarDesdeFicha()">Llenar datos del presupuesto</button>
+    </div>
+    <div class="pdf-status" id="ficha-status"></div>
   </div>
 </div>
 
@@ -2460,6 +2501,15 @@ function handlePrimaryAction() {
 function exportPDF() {
   if (!validarAntesDeEnviar()) return;
 
+  // Lead ya agendado desde el Agendador: ya está en Calendar y en el Sheet.
+  // Salteamos el gate de Calendar y bajamos directo el PDF (el _exportPDFInner
+  // decide si registra según el check "registrar igual").
+  if (_leadYaRegistrado) {
+    _exportCalendarEventUrl = '';
+    _exportPDFInner();
+    return;
+  }
+
   // Gate Calendar: si hay Fecha Evento, abrimos el modal Calendar primero.
   // Si el usuario decide (linkear / POSIBLE / Ninguno), continuamos con el flow.
   // Si no hay Fecha Evento, salteamos el gate (sin fecha no hay POSIBLE posible).
@@ -2501,8 +2551,9 @@ function _exportPDFInner() {
 
   html2pdf().set(opts).from(el).save();
 
-  // Si hay URL de Apps Script, también registra en el Sheet
-  if (APPS_SCRIPT_URL) {
+  // Si hay URL de Apps Script, también registra en el Sheet — salvo que el lead
+  // ya esté agendado (ficha del Agendador), para no duplicar la fila.
+  if (APPS_SCRIPT_URL && debeRegistrarEnSheet()) {
     registerInSheet();
   }
 }
@@ -2510,6 +2561,10 @@ function _exportPDFInner() {
 // === SOLO REGISTRAR (sin descargar PDF) ===
 function soloRegistrar() {
   if (!validarAntesDeEnviar()) return;
+
+  if (_leadYaRegistrado && !document.getElementById('ficha-registrar-igual').checked) {
+    if (!confirm('Este lead ya está agendado desde el Agendador y ya figura en el Sheet.\n\nSi registrás de nuevo vas a crear una fila DUPLICADA. ¿Seguro que querés registrarlo igual?')) return;
+  }
 
   if (!APPS_SCRIPT_URL) {
     alert('Todavía no está configurada la integración con el Sheet.\n\nAvisá a Camba para revisar.');
@@ -2896,6 +2951,10 @@ function resetAll() {
   });
   // Limpia el ID interno → próximo export crea registro nuevo en el Sheet
   clearPresupuestoSession();
+  // Salimos del modo "lead ya agendado" → vuelve a registrar normalmente
+  _leadYaRegistrado = false;
+  const flb = document.getElementById('ficha-lead-banner');
+  if (flb) flb.style.display = 'none';
   renderItems(); refreshTotals();
 }
 
@@ -3028,6 +3087,178 @@ function cargarPrevio(item) {
   refreshTotals();
   updateSessionBadge();
   showSheetToast('📂 Presupuesto cargado — el próximo export ACTUALIZA el registro');
+}
+
+// ==================================================================
+// PEGAR FICHA DEL AGENDADOR — solo llena el form, NO toca el Sheet.
+// El lead ya quedó registrado cuando Santi lo agendó desde el Agendador;
+// acá solo volcamos sus datos para armar el monto del presupuesto.
+// Parseo 100% local (sin Gemini, sin red) porque la ficha del Agendador
+// tiene formato fijo y queremos que sea instantáneo y a prueba de balas.
+// ==================================================================
+// Flag: el presupuesto actual viene de un lead YA agendado (ficha del Agendador).
+// Cuando está en true, el export descarga el PDF pero NO registra en el Sheet.
+let _leadYaRegistrado = false;
+// ¿El export tiene que escribir en el Sheet? No, si el lead ya está agendado
+// y el vendedor no tildó "registrar igual".
+function debeRegistrarEnSheet() {
+  if (!_leadYaRegistrado) return true;
+  const chk = document.getElementById('ficha-registrar-igual');
+  return !!(chk && chk.checked);
+}
+
+function abrirModalFicha() {
+  const modal = document.getElementById('ficha-modal');
+  modal.classList.add('open');
+  document.getElementById('ficha-text-input').value = '';
+  setFichaStatus('', '');
+  setTimeout(() => document.getElementById('ficha-text-input').focus(), 50);
+}
+function cerrarModalFicha() {
+  document.getElementById('ficha-modal').classList.remove('open');
+}
+function setFichaStatus(msg, kind) {
+  const el = document.getElementById('ficha-status');
+  el.textContent = msg || '';
+  el.className = 'pdf-status' + (kind ? ' ' + kind : '');
+}
+
+// Mapea el código de vendedor del Agendador → opción del <select> del cotizador.
+const FICHA_VENDEDOR_MAP = {
+  SC: 'Camba', CAMBA: 'Camba', SANTIAGO: 'Camba', SANTI: 'Camba', NEGRO: 'Camba',
+  COLO: 'Colo', JR: 'Colo',
+  AKO: 'Ako',
+  JP: 'JP', POLACO: 'JP',
+  CHINO: 'Chino',
+  ZENON: 'Zenon',
+  NAHUE: 'Nahue', NAHUEL: 'Nahue'
+};
+const FICHA_MESES = {
+  enero:'01', febrero:'02', marzo:'03', abril:'04', mayo:'05', junio:'06',
+  julio:'07', agosto:'08', septiembre:'09', setiembre:'09', octubre:'10',
+  noviembre:'11', diciembre:'12'
+};
+function _stripAccents(s) {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+function _normTime(raw) {
+  const m = String(raw || '').match(/(\d{1,2}):(\d{2})/);
+  if (!m) return '';
+  return String(m[1]).padStart(2, '0') + ':' + m[2];
+}
+
+// Lee la ficha línea por línea. Devuelve {} con los campos que encontró.
+function parseFichaAgendador(text) {
+  const out = {};
+  const lines = String(text || '').split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const idx = line.indexOf(':');
+    if (idx < 0) continue;
+    const label = _stripAccents(line.slice(0, idx)).toLowerCase().trim();
+    const value = line.slice(idx + 1).trim();
+    if (!value) continue;
+
+    if (/^evento$/.test(label)) {
+      // "Juani Correas (35p)" → nombre + pax de fallback
+      const paxM = value.match(/\((\d+)\s*(?:p|pax|personas)?\)/i);
+      if (paxM && !out.pax) out.pax = paxM[1];
+      out.nombreEvento = value.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    } else if (/^contacto$/.test(label)) {
+      // "Nombre / 1169772445"
+      const parts = value.split('/');
+      out.contacto = parts[0].trim();
+      if (parts[1]) out.telefono = parts.slice(1).join('/').trim();
+    } else if (/^(telefono|tel|whatsapp|cel|celular)$/.test(label)) {
+      if (!out.telefono) out.telefono = value;
+    } else if (/^(email|mail|correo)$/.test(label)) {
+      out.email = value;
+    } else if (/^vendedor$/.test(label)) {
+      const key = _stripAccents(value).toUpperCase().trim();
+      out.vendedor = FICHA_VENDEDOR_MAP[key] || value.trim();
+    } else if (/^(empresa|cliente|tipo de cliente)$/.test(label)) {
+      out.empresa = value;
+    } else if (/^(tipo|tipo de evento|tipo evento)$/.test(label)) {
+      out.tipo = value;
+    } else if (/^fecha$/.test(label)) {
+      out.fechaISO = _parseFechaFicha(value);
+    } else if (/^(personas|pax|cantidad|cantidad de personas|invitados)$/.test(label)) {
+      const n = value.match(/\d+/);
+      if (n) out.pax = n[0];
+    } else if (/^(locacion|direccion|ubicacion|lugar)$/.test(label)) {
+      out.locacion = value;
+    } else if (/^inicio$/.test(label)) {
+      out.horarioInicio = _normTime(value);
+    } else if (/^(fin|cierre)$/.test(label)) {
+      out.horarioFin = _normTime(value);
+    }
+  }
+  return out;
+}
+
+// "domingo 28 de junio de 2026" / "28/06/2026" / "28-06-2026" → yyyy-mm-dd
+function _parseFechaFicha(value) {
+  const v = value.trim();
+  let m = v.match(/(\d{1,2})\s*[\/\-]\s*(\d{1,2})\s*[\/\-]\s*(\d{2,4})/);
+  if (m) {
+    let yyyy = m[3];
+    if (yyyy.length === 2) yyyy = '20' + yyyy;
+    return `${yyyy}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+  }
+  // "28 de junio de 2026" (o sin año → asume el año en curso)
+  m = _stripAccents(v).toLowerCase().match(/(\d{1,2})\s+de\s+([a-z]+)(?:\s+de\s+(\d{4}))?/);
+  if (m && FICHA_MESES[m[2]]) {
+    const dd = String(m[1]).padStart(2,'0');
+    const mm = FICHA_MESES[m[2]];
+    const yyyy = m[3] || String(new Date().getFullYear());
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return '';
+}
+
+function llenarDesdeFicha() {
+  const text = (document.getElementById('ficha-text-input').value || '').trim();
+  if (!text) { setFichaStatus('Pegá la ficha antes de llenar.', 'error'); return; }
+
+  const d = parseFichaAgendador(text);
+  const found = Object.keys(d).filter(k => d[k]);
+  if (found.length === 0) {
+    setFichaStatus('No reconocí ningún dato. ¿Pegaste la ficha del Agendador completa?', 'error');
+    return;
+  }
+
+  // Evitar pisar trabajo en curso sin avisar.
+  const yaHayDatos = ['f-name','f-event-name','f-pax','f-address']
+    .some(id => (document.getElementById(id).value || '').trim());
+  if (yaHayDatos && !confirm('Ya hay datos cargados en el presupuesto. ¿Los reemplazo con los de la ficha?')) {
+    return;
+  }
+
+  const setVal = (id, v) => { if (v) { const el = document.getElementById(id); if (el) el.value = v; } };
+  setVal('f-name', d.contacto);
+  setVal('f-phone', d.telefono);
+  setVal('f-email', d.email);
+  setVal('f-company', d.empresa);
+  setVal('f-event-name', d.nombreEvento);
+  setVal('f-event-date', d.fechaISO);
+  setVal('f-pax', d.pax);
+  setVal('f-event-start', d.horarioInicio);
+  setVal('f-event-end', d.horarioFin);
+  setVal('f-address', d.locacion);
+  setVal('f-vendor', d.vendedor);
+  setVal('f-type', d.tipo);
+
+  // El lead ya está en el Sheet (lo cargó el Agendador) → marcamos para que
+  // el export NO lo vuelva a registrar y evitar el duplicado.
+  _leadYaRegistrado = true;
+  const banner = document.getElementById('ficha-lead-banner');
+  if (banner) { banner.style.display = 'block'; document.getElementById('ficha-registrar-igual').checked = false; }
+
+  renderDoc();
+  refreshTotals();
+  cerrarModalFicha();
+  showSheetToast('📋 Datos cargados desde la ficha — armá el monto y exportá (no se registra de nuevo)');
 }
 
 // Initial render

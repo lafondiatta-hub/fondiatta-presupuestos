@@ -901,8 +901,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
     <div id="ficha-lead-banner" class="ficha-lead-banner" style="display:none">
       <div class="flb-title">📋 Lead ya agendado desde el Agendador</div>
-      <div class="flb-text">Al exportar se descarga el PDF y <strong>no</strong> se vuelve a registrar en el Sheet (evita el duplicado, porque el lead ya está cargado).</div>
-      <label class="flb-check"><input type="checkbox" id="ficha-registrar-igual"> Registrar igual en el Sheet (ojo: crea fila nueva)</label>
+      <div class="flb-text">Al exportar se <strong>actualiza la fila de este lead</strong> en el Sheet con el monto del presupuesto (no crea una fila nueva).</div>
+      <div class="flb-text" id="flb-id-line" style="margin-top:6px;opacity:0.85"></div>
     </div>
     <div class="actions">
       <button class="btn" id="btn-primary" onclick="handlePrimaryAction()">Exportar PDF</button>
@@ -2551,10 +2551,14 @@ function _exportPDFInner() {
 
   html2pdf().set(opts).from(el).save();
 
-  // Si hay URL de Apps Script, también registra en el Sheet — salvo que el lead
-  // ya esté agendado (ficha del Agendador), para no duplicar la fila.
-  if (APPS_SCRIPT_URL && debeRegistrarEnSheet()) {
-    registerInSheet();
+  // Sheet: si el lead ya viene agendado (ficha del Agendador), ACTUALIZAMOS su
+  // fila con el monto en vez de crear una nueva. Si no, registro normal.
+  if (APPS_SCRIPT_URL) {
+    if (_leadYaRegistrado) {
+      actualizarLeadConMonto();
+    } else {
+      registerInSheet();
+    }
   }
 }
 
@@ -2562,8 +2566,11 @@ function _exportPDFInner() {
 function soloRegistrar() {
   if (!validarAntesDeEnviar()) return;
 
-  if (_leadYaRegistrado && !document.getElementById('ficha-registrar-igual').checked) {
-    if (!confirm('Este lead ya está agendado desde el Agendador y ya figura en el Sheet.\n\nSi registrás de nuevo vas a crear una fila DUPLICADA. ¿Seguro que querés registrarlo igual?')) return;
+  // Lead ya agendado: sincronizamos el monto en su fila (sin PDF, sin duplicar).
+  if (_leadYaRegistrado) {
+    if (!APPS_SCRIPT_URL) { alert('Todavía no está configurada la integración con el Sheet.'); return; }
+    actualizarLeadConMonto();
+    return;
   }
 
   if (!APPS_SCRIPT_URL) {
@@ -2953,6 +2960,7 @@ function resetAll() {
   clearPresupuestoSession();
   // Salimos del modo "lead ya agendado" → vuelve a registrar normalmente
   _leadYaRegistrado = false;
+  _leadIdSeguimiento = '';
   const flb = document.getElementById('ficha-lead-banner');
   if (flb) flb.style.display = 'none';
   renderItems(); refreshTotals();
@@ -3097,15 +3105,12 @@ function cargarPrevio(item) {
 // tiene formato fijo y queremos que sea instantáneo y a prueba de balas.
 // ==================================================================
 // Flag: el presupuesto actual viene de un lead YA agendado (ficha del Agendador).
-// Cuando está en true, el export descarga el PDF pero NO registra en el Sheet.
+// En ese caso el export ACTUALIZA la fila existente del lead con el monto
+// (en vez de crear una fila nueva → evita el duplicado).
 let _leadYaRegistrado = false;
-// ¿El export tiene que escribir en el Sheet? No, si el lead ya está agendado
-// y el vendedor no tildó "registrar igual".
-function debeRegistrarEnSheet() {
-  if (!_leadYaRegistrado) return true;
-  const chk = document.getElementById('ficha-registrar-igual');
-  return !!(chk && chk.checked);
-}
+// ID Presupuesto (P-2026-NNN) del lead, si la ficha lo trae. Si no, al exportar
+// buscamos la fila por cliente + fecha.
+let _leadIdSeguimiento = '';
 
 function abrirModalFicha() {
   const modal = document.getElementById('ficha-modal');
@@ -3186,6 +3191,9 @@ function parseFichaAgendador(text) {
     } else if (/^(personas|pax|cantidad|cantidad de personas|invitados)$/.test(label)) {
       const n = value.match(/\d+/);
       if (n) out.pax = n[0];
+    } else if (/^(id|id seguimiento|id presupuesto|id lead)$/.test(label)) {
+      const m = value.match(/P-?\d{4}-?\d+/i);
+      if (m) out.idSeguimiento = m[0].toUpperCase();
     } else if (/^(locacion|direccion|ubicacion|lugar)$/.test(label)) {
       out.locacion = value;
     } else if (/^inicio$/.test(label)) {
@@ -3193,6 +3201,12 @@ function parseFichaAgendador(text) {
     } else if (/^(fin|cierre)$/.test(label)) {
       out.horarioFin = _normTime(value);
     }
+  }
+  // Red de seguridad: si no vino en una línea con label, buscamos el ID en
+  // cualquier parte del texto (ej: "P-2026-123" suelto).
+  if (!out.idSeguimiento) {
+    const m = String(text || '').match(/P-?\d{4}-?\d+/i);
+    if (m) out.idSeguimiento = m[0].toUpperCase();
   }
   return out;
 }
@@ -3249,16 +3263,91 @@ function llenarDesdeFicha() {
   setVal('f-vendor', d.vendedor);
   setVal('f-type', d.tipo);
 
-  // El lead ya está en el Sheet (lo cargó el Agendador) → marcamos para que
-  // el export NO lo vuelva a registrar y evitar el duplicado.
+  // El lead ya está en el Sheet (lo cargó el Agendador) → al exportar
+  // actualizamos SU fila con el monto, sin crear una nueva.
   _leadYaRegistrado = true;
+  _leadIdSeguimiento = d.idSeguimiento || '';
   const banner = document.getElementById('ficha-lead-banner');
-  if (banner) { banner.style.display = 'block'; document.getElementById('ficha-registrar-igual').checked = false; }
+  if (banner) {
+    banner.style.display = 'block';
+    const idLine = document.getElementById('flb-id-line');
+    if (idLine) {
+      idLine.textContent = _leadIdSeguimiento
+        ? `🔗 Vinculado al lead ${_leadIdSeguimiento}`
+        : 'Sin ID en la ficha → al exportar busco la fila por cliente + fecha';
+    }
+  }
 
   renderDoc();
   refreshTotals();
   cerrarModalFicha();
-  showSheetToast('📋 Datos cargados desde la ficha — armá el monto y exportá (no se registra de nuevo)');
+  showSheetToast('📋 Datos cargados — armá el monto y al exportar se sincroniza en el Sheet');
+}
+
+// Busca la fila del lead en el Sheet por cliente + fecha (fallback cuando la
+// ficha no trae el ID). Devuelve el ID Presupuesto (P-2026-NNN) o ''.
+async function buscarIdLead() {
+  const cliente = (document.getElementById('f-company').value || document.getElementById('f-name').value || '').trim();
+  const fechaEvento = document.getElementById('f-event-date').value || '';
+  if (!cliente && !fechaEvento) return '';
+  try {
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'buscarLeadPorClienteFecha', cliente, fechaEvento }),
+      redirect: 'follow'
+    });
+    const json = await res.json();
+    if (json && json.ok && Array.isArray(json.matches) && json.matches.length) {
+      return json.matches[0].idPresupuesto || '';
+    }
+  } catch (e) { console.error('buscarIdLead falló:', e); }
+  return '';
+}
+
+// Actualiza la fila del lead agendado con el monto del presupuesto. Resuelve el
+// ID por la ficha o, si no vino, buscándolo por cliente + fecha. Si no encuentra
+// la fila, avisa para cargar el monto a mano (no crea duplicado).
+async function actualizarLeadConMonto() {
+  showSheetToast('🔄 Sincronizando monto en el Sheet…');
+
+  let idPres = _leadIdSeguimiento;
+  if (!idPres) idPres = await buscarIdLead();
+
+  if (!idPres) {
+    showSheetToast('⚠️ No encontré el lead en el Sheet — exporté el PDF, cargá el monto a mano', true);
+    return;
+  }
+
+  const t = calc();
+  const monto = Math.round(t.total);
+  const detalle = items.map(i => {
+    const tipo = i.tipoServicio ? `[${i.tipoServicio}] ` : '';
+    const extra = i.desc ? ` (${i.desc})` : '';
+    return `${tipo}${i.qty}x ${i.name}${extra}`;
+  }).join(' · ');
+  const ivaLabel = ivaMode ? 'c/IVA' : 's/IVA';
+  const observaciones = `TOTAL ${ivaLabel}: $${monto.toLocaleString('es-AR')}${t.discount>0?' · Descuento: $'+Math.round(t.discount).toLocaleString('es-AR'):''}`;
+  const itemsJson = JSON.stringify(items.map(i => ({
+    cat: i.cat, name: i.name, price: i.price, qty: i.qty,
+    unit: i.unit, desc: i.desc, custom: !!i.custom, tipoServicio: i.tipoServicio
+  })));
+
+  // Sin presupuestoId interno → el bound matchea por idPresupuesto (P-2026) y
+  // solo actualiza monto/items/detalle, sin pisar estado/vendedor del Agendador.
+  const payload = { idPresupuesto: idPres, monto, detalle, observaciones, itemsJson };
+
+  fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    body: JSON.stringify(payload),
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+  }).catch(err => {
+    console.error(err);
+    showSheetToast('⚠️ No se pudo sincronizar el monto. Revisá la conexión.', true);
+  });
+
+  showSheetToast(`✅ Monto sincronizado en la fila del lead (${idPres})`);
 }
 
 // Initial render

@@ -116,6 +116,13 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .ficha-lead-banner .flb-text{font-size:11px;line-height:1.5;color:var(--fg-dim)}
 .ficha-lead-banner .flb-check{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:11px;color:var(--fg-dim);cursor:pointer}
 .ficha-lead-banner .flb-check input{accent-color:var(--fg)}
+.ficha-lead-banner .flb-solo-pdf{
+  margin-top:11px;width:100%;padding:8px 12px;border-radius:4px;
+  background:transparent;color:var(--fg-dim);border:1px solid var(--border);
+  font-family:'Organetto',sans-serif;font-size:9px;letter-spacing:0.1em;
+  text-transform:uppercase;font-weight:700;cursor:pointer;transition:all .15s ease;
+}
+.ficha-lead-banner .flb-solo-pdf:hover{color:var(--fg);border-color:var(--fg-dim);background:rgba(244,239,230,0.05)}
 
 .section{margin-bottom:28px}
 .section h2{font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--fg);margin-bottom:12px;display:flex;align-items:center;gap:8px}
@@ -901,8 +908,9 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
     <div id="ficha-lead-banner" class="ficha-lead-banner" style="display:none">
       <div class="flb-title">📋 Lead ya agendado desde el Agendador</div>
-      <div class="flb-text">Al exportar se <strong>actualiza la fila de este lead</strong> en el Sheet con el monto del presupuesto (no crea una fila nueva).</div>
+      <div class="flb-text">El botón grande <strong>Exportar PDF</strong> manda el PDF y guarda el monto en la fila de este lead (no duplica). ¿Solo querés remandarle el PDF al cliente? Usá el botón de abajo, no toca el Sheet.</div>
       <div class="flb-text" id="flb-id-line" style="margin-top:6px;opacity:0.85"></div>
+      <button type="button" class="flb-solo-pdf" onclick="exportarSoloPDF()">📄 Solo exportar PDF (no toca el Sheet)</button>
     </div>
     <div class="actions">
       <button class="btn" id="btn-primary" onclick="handlePrimaryAction()">Exportar PDF</button>
@@ -2524,7 +2532,7 @@ function exportPDF() {
   _exportPDFInner();
 }
 
-function _exportPDFInner() {
+function _exportPDFInner(skipSheet) {
   // Auto-completar nombre del evento con el formato configurado
   generarNombreAuto();
 
@@ -2551,15 +2559,25 @@ function _exportPDFInner() {
 
   html2pdf().set(opts).from(el).save();
 
-  // Sheet: si el lead ya viene agendado (ficha del Agendador), ACTUALIZAMOS su
-  // fila con el monto en vez de crear una nueva. Si no, registro normal.
-  if (APPS_SCRIPT_URL) {
+  // Sheet: si skipSheet (botón "Solo exportar PDF"), no tocamos nada.
+  // Si el lead ya viene agendado (ficha del Agendador), ACTUALIZAMOS su fila
+  // con el monto en vez de crear una nueva. Si no, registro normal.
+  if (APPS_SCRIPT_URL && !skipSheet) {
     if (_leadYaRegistrado) {
       actualizarLeadConMonto();
     } else {
       registerInSheet();
     }
   }
+}
+
+// Exporta SOLO el PDF, sin tocar el Sheet. Para re-enviarle el PDF formal a un
+// cliente cuando el lead ya está agendado y no querés re-escribir el monto.
+function exportarSoloPDF() {
+  if (!validarAntesDeEnviar()) return;
+  _exportCalendarEventUrl = '';
+  _exportPDFInner(true);
+  showSheetToast('📄 PDF exportado (no se tocó el Sheet)');
 }
 
 // === SOLO REGISTRAR (sin descargar PDF) ===

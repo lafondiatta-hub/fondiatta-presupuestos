@@ -908,12 +908,12 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
     <div id="ficha-lead-banner" class="ficha-lead-banner" style="display:none">
       <div class="flb-title">📋 Lead ya agendado desde el Agendador</div>
-      <div class="flb-text">El botón grande <strong>Exportar PDF</strong> manda el PDF y guarda el monto en la fila de este lead (no duplica). ¿Solo querés remandarle el PDF al cliente? Usá el botón de abajo, no toca el Sheet.</div>
+      <div class="flb-text"><strong>Exportar PDF</strong> manda el PDF y guarda el monto en la fila de este lead (no duplica). Si solo querés remandarle el PDF al cliente, usá <strong>Solo exportar PDF</strong> — no toca el Sheet.</div>
       <div class="flb-text" id="flb-id-line" style="margin-top:6px;opacity:0.85"></div>
-      <button type="button" class="flb-solo-pdf" onclick="exportarSoloPDF()">📄 Solo exportar PDF (no toca el Sheet)</button>
     </div>
     <div class="actions">
       <button class="btn" id="btn-primary" onclick="handlePrimaryAction()">Exportar PDF</button>
+      <button class="btn secondary" id="btn-solo-pdf" onclick="exportarSoloPDF()" title="Descarga el PDF sin escribir nada en el Sheet (ideal para remandarle el PDF a un cliente)">📄 Solo exportar PDF (no toca el Sheet)</button>
       <button class="btn secondary" id="btn-cierre-canva" onclick="exportCierre()" title="Genera 1 página A4 horizontal (datos cliente + precios + condiciones) lista para insertar como última slide del deck Canva">📐 Cierre para Canva</button>
       <button class="btn secondary" id="btn-solo-registrar" onclick="soloRegistrar()" title="Solo registra el envío en el Sheet, sin descargar PDF">Solo registrar</button>
     </div>

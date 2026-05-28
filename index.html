@@ -3001,6 +3001,7 @@ document.addEventListener('keydown', e => {
 
 // === CARGAR PRESUPUESTO PREVIO (modal) ===
 let previosCache = []; // cache local de la lista para filtrado client-side
+const PREVIOS_DEFAULT_SHOW = 30; // por defecto mostramos los más recientes; el buscador alcanza todos
 
 async function abrirModalPrevios() {
   document.getElementById('previos-modal').classList.add('open');
@@ -3009,7 +3010,7 @@ async function abrirModalPrevios() {
   document.getElementById('previos-status').textContent = '⏳ Cargando últimos presupuestos...';
 
   try {
-    const url = APPS_SCRIPT_URL + '?action=list&limit=100';
+    const url = APPS_SCRIPT_URL + '?action=list&limit=800';
     const r = await fetch(url, { method: 'GET' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
@@ -3017,12 +3018,16 @@ async function abrirModalPrevios() {
     previosCache = data.items || [];
     if (previosCache.length === 0) {
       document.getElementById('previos-status').textContent =
-        'Todavía no hay presupuestos con Internal ID. Los presupuestos exportados desde hoy en adelante van a estar disponibles acá.';
+        'Todavía no hay presupuestos registrados en el Sheet.';
       return;
     }
+    const totalCache = previosCache.length;
+    const recientes = previosCache.slice(0, PREVIOS_DEFAULT_SHOW);
     document.getElementById('previos-status').textContent =
-      `${previosCache.length} presupuestos. Click en uno para cargarlo.`;
-    renderPreviosList(previosCache);
+      totalCache > PREVIOS_DEFAULT_SHOW
+        ? `Mostrando los ${recientes.length} más recientes (de ${totalCache}). Buscá por cliente, empresa o ID para ver el resto.`
+        : `${totalCache} presupuestos. Click en uno para cargarlo.`;
+    renderPreviosList(recientes);
     setTimeout(() => document.getElementById('previos-search').focus(), 100);
   } catch (err) {
     console.error(err);
@@ -3060,25 +3065,65 @@ function renderPreviosList(items) {
 
 function filtrarPrevios() {
   const q = (document.getElementById('previos-search').value || '').trim().toLowerCase();
-  if (!q) { renderPreviosList(previosCache); return; }
+  const statusEl = document.getElementById('previos-status');
+  // Sin búsqueda → volvemos a los más recientes. Con búsqueda → filtramos TODO el cache.
+  if (!q) {
+    if (statusEl) {
+      statusEl.textContent = previosCache.length > PREVIOS_DEFAULT_SHOW
+        ? `Mostrando los ${PREVIOS_DEFAULT_SHOW} más recientes (de ${previosCache.length}). Buscá por cliente, empresa o ID para ver el resto.`
+        : `${previosCache.length} presupuestos. Click en uno para cargarlo.`;
+    }
+    renderPreviosList(previosCache.slice(0, PREVIOS_DEFAULT_SHOW));
+    return;
+  }
   const filtered = previosCache.filter(it => {
     const hay = [it.idPresupuesto, it.contacto, it.empresa, it.vendedor, it.nombreEvento]
       .filter(Boolean).join(' ').toLowerCase();
     return hay.includes(q);
   });
+  if (statusEl) statusEl.textContent = `${filtered.length} resultado(s) para “${q}”.`;
   renderPreviosList(filtered);
 }
 
 function cargarPrevio(item) {
-  if (!item || !item.internalId) {
-    alert('Este presupuesto no tiene Internal ID — no se puede cargar para edición.');
-    return;
+  if (!item) return;
+
+  // Dos modos:
+  //  A) Internal ID (p_...) → presupuesto armado en el cotizador. Recarga
+  //     completa (incluye el detalle) y el próximo export ACTUALIZA por ese ID.
+  //  B) Sin Internal ID pero con P-2026 → presupuesto viejo o cargado por otra
+  //     vía. Recarga solo la cabecera (el detalle no quedó guardado); el próximo
+  //     export sincroniza monto/items en esa misma fila por P-2026, no duplica.
+  const tieneInternal = item.internalId && String(item.internalId).indexOf('p_') === 0;
+  const bannerEl = document.getElementById('ficha-lead-banner');
+
+  if (tieneInternal) {
+    _leadYaRegistrado = false;
+    _leadIdSeguimiento = '';
+    if (bannerEl) bannerEl.style.display = 'none';
+    try {
+      localStorage.setItem(PRESU_ID_KEY, item.internalId);
+      localStorage.setItem(PRESU_EXPORTED_KEY, '1');
+    } catch (e) {}
+  } else {
+    // Vinculamos por P-2026: reusa el camino de "lead ya registrado" → al
+    // exportar actualiza esa fila con el monto/items en vez de crear una nueva.
+    _leadYaRegistrado = true;
+    _leadIdSeguimiento = item.idPresupuesto || '';
+    try {
+      localStorage.removeItem(PRESU_ID_KEY);
+      localStorage.removeItem(PRESU_EXPORTED_KEY);
+    } catch (e) {}
+    if (bannerEl) {
+      bannerEl.style.display = 'block';
+      const idLine = document.getElementById('flb-id-line');
+      if (idLine) {
+        idLine.textContent = _leadIdSeguimiento
+          ? `🔗 Vinculado al lead ${_leadIdSeguimiento} — al exportar se actualiza esta fila`
+          : 'Sin ID → al exportar busco la fila por cliente + fecha';
+      }
+    }
   }
-  // Guardar el internalId como sesión activa → próximo export va a UPDATE
-  try {
-    localStorage.setItem(PRESU_ID_KEY, item.internalId);
-    localStorage.setItem(PRESU_EXPORTED_KEY, '1');
-  } catch (e) {}
 
   // Llenar campos del formulario
   const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
@@ -3103,16 +3148,23 @@ function cargarPrevio(item) {
     }
   }
 
-  // Restaurar items si vinieron como JSON
+  // Restaurar items si vinieron como JSON. Si el viejo no tiene detalle
+  // guardado, arrancamos con la lista vacía (cabecera cargada, detalle a mano).
   if (item.items && Array.isArray(item.items)) {
     items = item.items.map(i => ({ ...i, id: Date.now() + Math.random() }));
+  } else if (!tieneInternal) {
+    items = [];
   }
 
   cerrarModalPrevios();
   renderItems();
   refreshTotals();
   updateSessionBadge();
-  showSheetToast('📂 Presupuesto cargado — el próximo export ACTUALIZA el registro');
+  if (tieneInternal) {
+    showSheetToast('📂 Presupuesto cargado — el próximo export ACTUALIZA el registro');
+  } else {
+    showSheetToast('📂 Cabecera cargada — armá el detalle; al exportar se sincroniza monto e items en esta fila');
+  }
 }
 
 // ==================================================================

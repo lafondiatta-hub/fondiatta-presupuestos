@@ -4586,9 +4586,8 @@ function cerrarCalGateModal() {
 }
 
 function gateConfirmAndProceed() {
-  if (_gateChoice === 'pending') return; // botón bloqueado, no debería pasar
   const fn = _gateOnProceed;
-  const url = _exportCalendarEventUrl;
+  const url = _exportCalendarEventUrl; // queda '' si no eligió nada → exporta sin link
   cerrarCalGateModal();
   if (typeof fn === 'function') fn(url);
 }
@@ -4597,12 +4596,11 @@ function gateApplyChoiceLock() {
   const btn = document.getElementById('gate-confirm-btn');
   const hint = document.getElementById('gate-confirm-hint');
   if (!btn || !hint) return;
+  btn.disabled = false;
   if (_gateChoice === 'pending') {
-    btn.disabled = true;
-    hint.textContent = 'Decidí arriba qué hacer con el seguimiento en Calendar antes de continuar.';
+    hint.textContent = 'Si continuás sin elegir, el presupuesto se exporta sin link a Calendar.';
     hint.style.display = 'block';
   } else {
-    btn.disabled = false;
     hint.textContent = '';
     hint.style.display = 'none';
   }

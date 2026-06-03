@@ -276,7 +276,10 @@ function formatDate(v) {
 // de getLastRow() que se "estira" cuando hay validación, CF o formulas
 // vacías muchas filas abajo y el append cae lejos de la data real.
 function findLastWrittenRow_(sh) {
-  var primaryCols = [1, 2, 11, 22]; // A, B, K, V
+  // K (col 11) queda afuera: si un doPost crashea entre setValue(K)
+  // y los setValues posteriores, queda una fila huérfana con solo K
+  // que NO debe inflar lastRow y empujar nuevos entries al final.
+  var primaryCols = [1, 2, 22]; // A, B, V
   var maxRow = sh.getMaxRows();
   if (maxRow < 2) return 1;
   var scanTo = Math.min(maxRow, 10000);

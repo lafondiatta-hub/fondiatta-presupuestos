@@ -3003,22 +3003,27 @@ function registerInSheet() {
     email: document.getElementById('f-email').value.trim(),
     nombreEvento: document.getElementById('f-event-name').value.trim(),
     locacion: document.getElementById('f-address').value.trim(),
-    detalle: detalleFinal,
     canal: document.getElementById('f-channel').value.trim(),
     observaciones: observaciones,
     // Monto total calculado (columna X del Sheet)
     monto: Math.round(t.total),
     // ID interno persistente: si llega y matchea una fila existente, Apps Script ACTUALIZA esa fila.
     // Si no matchea (o el Apps Script todavía no soporta esta lógica), inserta normal.
-    presupuestoId: getOrCreatePresupuestoId(),
-    // Items en formato estructurado para poder restaurar el presupuesto desde el Sheet
-    // (Apps Script lo guarda en columna W como JSON.stringify)
-    itemsJson: JSON.stringify(items.map(i => ({
+    presupuestoId: getOrCreatePresupuestoId()
+  };
+
+  // Solo mandamos detalle e itemsJson si hay items cargados o si es envío de catálogo.
+  // Si están vacíos y la fila ya existía, omitirlos preserva el detalle que ya estaba en el Sheet.
+  if (items.length > 0 || catalogMode) {
+    payload.detalle = detalleFinal;
+  }
+  if (items.length > 0) {
+    payload.itemsJson = JSON.stringify(items.map(i => ({
       cat: i.cat, name: i.name, price: i.price, qty: i.qty,
       unit: i.unit, desc: i.desc, custom: !!i.custom,
       tipoServicio: i.tipoServicio
-    })))
-  };
+    })));
+  }
 
   // No-cors porque Apps Script devuelve CORS según config; usamos form-encoded
   const formData = new FormData();
@@ -3511,7 +3516,13 @@ async function actualizarLeadConMonto() {
 
   // Sin presupuestoId interno → el bound matchea por idPresupuesto (P-2026) y
   // solo actualiza monto/items/detalle, sin pisar estado/vendedor del Agendador.
-  const payload = { idPresupuesto: idPres, monto, detalle, observaciones, itemsJson };
+  // Si no hay items cargados, omitimos detalle e itemsJson para no pisar lo que
+  // ya estaba guardado en la fila (caso "abrí un previo y exporté sin completar").
+  const payload = { idPresupuesto: idPres, monto, observaciones };
+  if (items.length > 0) {
+    payload.detalle = detalle;
+    payload.itemsJson = itemsJson;
+  }
 
   fetch(APPS_SCRIPT_URL, {
     method: 'POST',

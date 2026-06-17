@@ -3025,32 +3025,35 @@ function registerInSheet() {
     })));
   }
 
-  // No-cors porque Apps Script devuelve CORS según config; usamos form-encoded
-  const formData = new FormData();
-  formData.append('payload', JSON.stringify(payload));
-
-  // Toast OPTIMISTA: mostramos confirmación apenas se dispara el request.
-  // Con mode:'no-cors' no podemos leer la respuesta real igual, así que esperar
-  // al .then() solo agrega latencia de red sin info útil. Si hay falla de red
-  // (sin internet), el .catch igual va a actualizar el toast.
-  // (catalogMode ya está declarado arriba, no lo redeclaramos.)
+  // El Web App del bound es público y emite Access-Control-Allow-Origin: *,
+  // así que podemos usar mode:'cors' y leer la respuesta real (json.ok) en
+  // vez del toast optimista. Si el Sheet falla, el comercial se entera.
   const yaExportado = isPresupuestoAlreadyExported();
   const msgOK = catalogMode
     ? '✅ Envío de catálogo registrado en el Sheet'
     : (yaExportado ? '✅ Presupuesto actualizado en el Sheet' : '✅ Presupuesto registrado en el Sheet');
-  showSheetToast(msgOK);
-  // Marca la sesión como exportada (próximo export va a ser update)
-  markPresupuestoExported();
+
+  showSheetToast('🔄 Registrando en el Sheet…');
 
   fetch(APPS_SCRIPT_URL, {
     method: 'POST',
-    mode: 'no-cors',
+    mode: 'cors',
+    redirect: 'follow',
     body: JSON.stringify(payload),
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }
   })
+    .then(async (res) => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const json = await res.json().catch(() => null);
+      if (!json || json.ok === false) {
+        throw new Error((json && json.error) || 'Apps Script devolvió error');
+      }
+      showSheetToast(msgOK);
+      markPresupuestoExported();
+    })
     .catch(err => {
-      console.error(err);
-      showSheetToast('⚠️ No se pudo registrar en el Sheet. Revisá la conexión.', true);
+      console.error('Error registrando en Sheet:', err);
+      showSheetToast('⚠️ No se pudo registrar en el Sheet: ' + (err.message || 'error desconocido'), true);
     });
 
   // Si el usuario decidió linkear/agendar un evento en Calendar via el gate,
@@ -3524,17 +3527,27 @@ async function actualizarLeadConMonto() {
     payload.itemsJson = itemsJson;
   }
 
+  showSheetToast('🔄 Sincronizando monto en la fila del lead…');
+
   fetch(APPS_SCRIPT_URL, {
     method: 'POST',
-    mode: 'no-cors',
+    mode: 'cors',
+    redirect: 'follow',
     body: JSON.stringify(payload),
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-  }).catch(err => {
-    console.error(err);
-    showSheetToast('⚠️ No se pudo sincronizar el monto. Revisá la conexión.', true);
-  });
-
-  showSheetToast(`✅ Monto sincronizado en la fila del lead (${idPres})`);
+  })
+    .then(async (res) => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const json = await res.json().catch(() => null);
+      if (!json || json.ok === false) {
+        throw new Error((json && json.error) || 'Apps Script devolvió error');
+      }
+      showSheetToast(`✅ Monto sincronizado en la fila del lead (${idPres})`);
+    })
+    .catch(err => {
+      console.error('Error sincronizando monto:', err);
+      showSheetToast('⚠️ No se pudo sincronizar el monto: ' + (err.message || 'error desconocido'), true);
+    });
 }
 
 // Initial render

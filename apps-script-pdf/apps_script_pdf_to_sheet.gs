@@ -309,7 +309,18 @@ function extractFromInput(input) {
     : [];
   out.INTERNAL_FILENAME = input.filename;
   out.INTERNAL_SOURCE = input.kind; // 'pdf' | 'image' | 'text'
+  // Monto extraído (TOTAL del presupuesto). Lo consume el frontend para
+  // mostrarlo editable; el comercial lo confirma antes de registrar.
+  out.monto = parseMontoLF_(parsed.monto);
   return out;
+}
+
+// Limpia el monto que devuelve Gemini ("$ 1.500.000", "1500000", "") a un
+// número entero. Devuelve 0 si no hay nada parseable.
+function parseMontoLF_(v) {
+  if (v == null) return 0;
+  var digits = String(v).replace(/[^\d]/g, '');
+  return digits ? (parseInt(digits, 10) || 0) : 0;
 }
 
 // true si el texto contiene algo "de fecha": un dígito, un mes o un día de semana.
@@ -338,6 +349,9 @@ function buildResponseSchema() {
     type: 'array',
     items: { type: 'string' }
   };
+  // monto: TOTAL del presupuesto (solo dígitos como string, "" si no hay).
+  // No es columna de HEADERS — se escribe aparte en la col X. Opcional.
+  properties.monto = { type: 'string' };
   return {
     type: 'object',
     properties: properties,
@@ -386,6 +400,12 @@ function buildPrompt(kind) {
     '  - Si es una sola fecha, dejalo como [] (array vacío). NO repitas la única fecha.',
     '  - Si son N fechas con menús/pax DISTINTOS (ej civil un día + fiesta otro día), igual incluí las N fechas acá. El usuario decide después si agendar todas o no.',
     '  - Año: si el PDF dice "junio 2026" usá 2026. Si no aclara año, asumí el próximo en el calendario.',
+    '',
+    'CAMPO EXTRA — "monto": el TOTAL del presupuesto en pesos argentinos, SOLO dígitos (sin "$", sin puntos de miles, sin "ARS", sin centavos). Ej: "TOTAL $1.500.000" → "1500000".',
+    '  - Si hay varios totales, usá el TOTAL FINAL (el de más abajo, con descuento/IVA si corresponde).',
+    '  - Si el precio es POR PERSONA y hay cantidad de personas, multiplicá para dar el total (ej "$15.000 p/p × 100 pax" → "1500000").',
+    '  - Si son N fechas con un total agregado, usá el TOTAL agregado.',
+    '  - Si NO aparece ningún monto/precio, devolvé "". NUNCA inventes un número.',
     '',
     'Si algún dato NO está presente, devolvé string vacío "" para ese campo. NO inventes datos.',
     'Si el input es informal (ej: "30 pax / Jorge Lanza / propuesta general / 26 de junio"), igual extraé lo que puedas: nombre del contacto, pax, tipo de evento, fecha, etc. Lo que no esté → "".',
@@ -465,6 +485,11 @@ function appendRow(data) {
     sheet.insertRowsAfter(sheet.getMaxRows(), 1);
   }
   sheet.getRange(target, 1, 1, row.length).setValues([row]);
+  // Monto va en la columna X (24), igual que el cotizador (bound v4.0+).
+  // `monto` es un key extra (no de HEADERS), por eso se escribe aparte.
+  if (data.monto != null && data.monto !== '') {
+    sheet.getRange(target, 24).setValue(Number(data.monto) || 0);
+  }
   return target;
 }
 

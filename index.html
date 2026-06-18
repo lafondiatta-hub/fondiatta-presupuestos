@@ -183,6 +183,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .item .price-edit{grid-column:1/-1;display:grid;grid-template-columns:auto 1fr;gap:6px;align-items:center;margin-top:4px}
 .item .price-edit label{font-size:9px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:0.06em}
 .item .price-edit input{padding:3px 6px;font-size:11px;background:#141414;border:1px solid var(--border);color:var(--fg);border-radius:3px}
+.item .disc-edit input{max-width:80px}
 
 .add-custom{width:100%;padding:10px;background:transparent;border:1px dashed var(--border);color:var(--fg-dim);border-radius:4px;font-size:12px;letter-spacing:0.05em;margin-top:8px;transition:all .15s}
 .add-custom:hover{border-color:var(--fg-dim);color:var(--fg)}
@@ -347,6 +348,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .doc-item .qty{font-size:12px;color:var(--fg-dim);text-align:right;min-width:70px}
 .doc-item .unit-price{font-size:12px;color:var(--fg-dim);text-align:right;min-width:100px;font-variant-numeric:tabular-nums}
 .doc-item .sub{font-size:14px;text-align:right;min-width:110px;font-variant-numeric:tabular-nums}
+.doc-item .unit-price .disc-tag{font-family:'Organetto',sans-serif;font-size:8px;letter-spacing:0.05em;color:var(--danger);font-weight:700;margin-left:5px;vertical-align:middle}
+.doc-item .sub .sub-bruto{color:var(--fg-dim);opacity:.5;font-size:11px;margin-right:5px;font-variant-numeric:tabular-nums}
 
 .doc-totals{
   margin-left:auto;
@@ -920,6 +923,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
       <h2>Resumen</h2>
       <div id="totals-mini" class="totals-mini">
         <div class="row"><span>Subtotal</span><span id="t-sub">$ 0</span></div>
+        <div class="row discount" id="t-ditems-row" style="display:none"><span>Descuento por ítems</span><span id="t-ditems">-$ 0</span></div>
         <div class="row discount" id="t-disc-row" style="display:none"><span id="t-disc-label">Descuento</span><span id="t-disc">-$ 0</span></div>
         <div class="row"><span>Subtotal con desc.</span><span id="t-sub-desc">$ 0</span></div>
         <div class="row" id="t-iva-row"><span>IVA 21%</span><span id="t-iva">$ 0</span></div>
@@ -995,6 +999,10 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
         <div class="doc-totals" id="d-totals" style="display:none">
           <div class="t-row subtotal"><span>Subtotal</span><span id="d-sub">$ 0</span></div>
+          <div class="t-row discount" id="d-ditems-row" style="display:none">
+            <span>Descuento por ítems</span>
+            <span id="d-ditems">-$ 0</span>
+          </div>
           <div class="t-row discount" id="d-disc-row" style="display:none">
             <span id="d-disc-label">Descuento</span>
             <span id="d-disc">-$ 0</span>
@@ -2006,6 +2014,7 @@ function addCustomItem() {
     id: Date.now() + Math.random(),
     name: 'Ítem personalizado',
     price: 0, qty: 1, unit: 'unidad', desc: '', cat: 'Custom', custom: true,
+    discPct: 0,
     tipoServicio: 'Otro'
   });
   renderItems(); refreshTotals();
@@ -2014,16 +2023,26 @@ function removeItem(id) {
   items = items.filter(i => i.id !== id);
   renderItems(); refreshTotals();
 }
+// HTML del subtotal de una línea: neto, con el bruto tachado si hay % desc.
+function lineSubHtml_(it) {
+  const dpct = +it.discPct || 0;
+  const bruto = it.price * it.qty;
+  const net = bruto * (1 - dpct / 100);
+  return dpct > 0
+    ? `<s style="opacity:.5;font-weight:400;margin-right:5px">${fmt(bruto)}</s>${fmt(net)}`
+    : fmt(net);
+}
 function updateItem(id, field, val) {
   const it = items.find(i => i.id === id);
   if (!it) return;
-  if (field === 'qty' || field === 'price') val = +val || 0;
+  if (field === 'qty' || field === 'price' || field === 'discPct') val = +val || 0;
+  if (field === 'discPct') val = Math.max(0, Math.min(100, val)); // % de 0 a 100
   it[field] = val;
   renderDoc();
-  // qty updates don't need full re-render of items
-  if (field === 'qty' || field === 'price') {
-    const row = document.querySelector(`[data-row="${id}"] .item-sub-val`);
-    if (row) row.textContent = fmt(it.price * it.qty);
+  // qty/price/discPct: refrescamos el subtotal de la línea sin re-render (preserva foco)
+  if (field === 'qty' || field === 'price' || field === 'discPct') {
+    const cell = document.querySelector(`[data-row="${id}"] .item-sub-val`);
+    if (cell) cell.innerHTML = lineSubHtml_(it);
   }
 }
 
@@ -2064,7 +2083,11 @@ function renderItems() {
         <label>Precio unit.</label>
         <input type="number" min="0" step="0.01" value="${it.price}" oninput="updateItem(${it.id},'price',this.value);refreshTotals()">
       </div>
-      <div class="subtotal"><span>Subtotal</span><span class="item-sub-val">${fmt(it.price * it.qty)}</span></div>`}
+      <div class="price-edit disc-edit">
+        <label>% desc.</label>
+        <input type="number" min="0" max="100" step="1" value="${(+it.discPct||0)||''}" placeholder="0" oninput="updateItem(${it.id},'discPct',this.value);refreshTotals()">
+      </div>
+      <div class="subtotal"><span>Subtotal</span><span class="item-sub-val">${lineSubHtml_(it)}</span></div>`}
     </div>
   `;
   }).join('');
@@ -2152,7 +2175,7 @@ function calc() {
     const iva = ivaMode ? subtotal * 0.21 : 0;
     const total = subtotal + iva;
     return {
-      subtotal, discount: 0, subDesc: subtotal, iva, total,
+      subtotal, descItems: 0, discount: 0, subDesc: subtotal, iva, total,
       isManual: true,
       manualTipo: tipo,
       manualMonto: monto,
@@ -2161,15 +2184,19 @@ function calc() {
   }
 
   // === MODO AUTOMÁTICO (default, igual que antes) ===
+  // subtotal = bruto (sin tocar). descItems = suma de descuentos por línea.
+  // El descuento global se aplica DESPUÉS, sobre la base ya neta de ítems.
   const subtotal = items.reduce((s, i) => s + (i.price * i.qty), 0);
+  const descItems = items.reduce((s, i) => s + (i.price * i.qty * ((+i.discPct || 0) / 100)), 0);
+  const baseNeta = subtotal - descItems;
   let discount = 0;
-  if (discountType === 'pct') discount = subtotal * (discountValue / 100);
+  if (discountType === 'pct') discount = baseNeta * (discountValue / 100);
   else discount = discountValue;
-  discount = Math.min(discount, subtotal);
-  const subDesc = subtotal - discount;
+  discount = Math.min(discount, baseNeta);
+  const subDesc = baseNeta - discount;
   const iva = ivaMode ? subDesc * 0.21 : 0;
   const total = subDesc + iva;
-  return { subtotal, discount, subDesc, iva, total, isManual: false };
+  return { subtotal, descItems, discount, subDesc, iva, total, isManual: false };
 }
 
 function refreshTotals() {
@@ -2180,6 +2207,12 @@ function refreshTotals() {
   document.getElementById('t-total').textContent = fmt(t.total);
   // Toggle IVA row visibility
   document.getElementById('t-iva-row').style.display = ivaMode ? '' : 'none';
+  // Descuento por ítems (suma de los % de línea)
+  const ditemsRow = document.getElementById('t-ditems-row');
+  if (t.descItems > 0) {
+    ditemsRow.style.display = '';
+    document.getElementById('t-ditems').textContent = '-' + fmt(t.descItems);
+  } else ditemsRow.style.display = 'none';
   const row = document.getElementById('t-disc-row');
   if (t.discount > 0) {
     row.style.display = '';
@@ -2410,12 +2443,21 @@ function renderDoc() {
       const tipo = i.tipoServicio || 'Otro';
       const tipoBadge = `<span class="tipo-badge">${esc(tipo)}</span>`;
       const descHtml = i.desc ? `<small>${esc(i.desc)}</small>` : '';
+      const dpct = +i.discPct || 0;
+      const bruto = i.price * i.qty;
+      const net = bruto * (1 - dpct / 100);
+      const unitHtml = dpct > 0
+        ? `${fmt(i.price)} <span class="disc-tag">−${dpct}%</span>`
+        : fmt(i.price);
+      const subHtml = dpct > 0
+        ? `<s class="sub-bruto">${fmt(bruto)}</s> ${fmt(net)}`
+        : fmt(bruto);
       return `
       <div class="doc-item">
         <div class="name">${tipoBadge}${esc(i.name)}${descHtml}</div>
         <div class="qty">${i.qty} × ${esc(i.unit)}</div>
-        <div class="unit-price">${fmt(i.price)}</div>
-        <div class="sub">${fmt(i.price * i.qty)}</div>
+        <div class="unit-price">${unitHtml}</div>
+        <div class="sub">${subHtml}</div>
       </div>
     `;
     }).join('');
@@ -2424,6 +2466,13 @@ function renderDoc() {
   document.getElementById('d-sub').textContent = fmt(t.subtotal);
   document.getElementById('d-sub-desc').textContent = fmt(t.subDesc);
   document.getElementById('d-iva').textContent = fmt(t.iva);
+
+  // Descuento por ítems en el documento
+  const dDitemsRow = document.getElementById('d-ditems-row');
+  if (t.descItems > 0) {
+    dDitemsRow.style.display = '';
+    document.getElementById('d-ditems').textContent = '-' + fmt(t.descItems);
+  } else dDitemsRow.style.display = 'none';
 
   // Toggle IVA row in doc
   document.getElementById('d-iva-row').style.display = ivaMode ? '' : 'none';
@@ -2434,9 +2483,10 @@ function renderDoc() {
     if (subRow) subRow.style.display = 'none';
     document.getElementById('d-sub-desc-row').style.display = 'none';
   } else {
-    // MODO AUTOMÁTICO como siempre
+    // MODO AUTOMÁTICO como siempre. Mostramos "Subtotal con descuento"
+    // si hubo descuento global O descuento por ítems.
     if (subRow) subRow.style.display = '';
-    if (t.discount === 0) {
+    if (t.discount === 0 && t.descItems === 0) {
       document.getElementById('d-sub-desc-row').style.display = 'none';
     } else {
       document.getElementById('d-sub-desc-row').style.display = '';
@@ -3058,6 +3108,7 @@ function registerInSheet() {
     payload.itemsJson = JSON.stringify(items.map(i => ({
       cat: i.cat, name: i.name, price: i.price, qty: i.qty,
       unit: i.unit, desc: i.desc, custom: !!i.custom,
+      discPct: +i.discPct || 0,
       tipoServicio: i.tipoServicio
     })));
   }
@@ -3551,7 +3602,7 @@ async function actualizarLeadConMonto() {
   const observaciones = `TOTAL ${ivaLabel}: $${monto.toLocaleString('es-AR')}${t.discount>0?' · Descuento: $'+Math.round(t.discount).toLocaleString('es-AR'):''}`;
   const itemsJson = JSON.stringify(items.map(i => ({
     cat: i.cat, name: i.name, price: i.price, qty: i.qty,
-    unit: i.unit, desc: i.desc, custom: !!i.custom, tipoServicio: i.tipoServicio
+    unit: i.unit, desc: i.desc, custom: !!i.custom, discPct: +i.discPct || 0, tipoServicio: i.tipoServicio
   })));
 
   // Sin presupuestoId interno → el bound matchea por idPresupuesto (P-2026) y

@@ -526,6 +526,25 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .modal-box th.num,.modal-box td.num{text-align:right;font-variant-numeric:tabular-nums}
 .modal-box td{padding:7px 6px;border-bottom:1px solid #1a1a1a}
 .modal-box td.muted{color:var(--fg-dim)}
+/* === RANKING COMERCIAL === */
+.sidebar header .btn-ranking{grid-column:1 / -1}
+.rk-periodo{display:inline-flex;border:1px solid var(--border);border-radius:5px;overflow:hidden;margin:0 0 16px}
+.rk-periodo button{background:#141414;color:var(--fg-dim);border:none;padding:7px 16px;font-size:12px;cursor:pointer;font-family:inherit}
+.rk-periodo button.active{background:var(--fg);color:#0a0a0a;font-weight:700}
+.ranking-status{font-size:12px;color:var(--fg-dim);margin-bottom:12px}
+.rk-medal{text-align:center;font-size:15px;width:30px}
+.rk-name{color:var(--fg);font-weight:700}
+.rk-win{color:#4ADE80;font-variant-numeric:tabular-nums}
+.rk-pos{color:var(--fg-dim)}
+.rk-ultimos{display:flex;flex-direction:column;gap:4px}
+.rk-u{display:grid;grid-template-columns:74px 1fr auto auto;gap:10px;align-items:center;padding:7px 10px;background:#0a0a0a;border:1px solid var(--border);border-radius:4px;font-size:12px}
+.rk-u-fecha{color:var(--fg-dim);font-variant-numeric:tabular-nums}
+.rk-u-main{color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rk-u-monto{color:var(--fg-dim);font-variant-numeric:tabular-nums;text-align:right}
+.rk-u-estado{font-size:9px;text-transform:uppercase;letter-spacing:0.05em;padding:3px 8px;border-radius:3px;font-weight:700;white-space:nowrap}
+.rk-e-win{background:rgba(74,222,128,0.15);color:#4ADE80}
+.rk-e-lose{background:rgba(248,113,113,0.15);color:#F87171}
+.rk-e-mid{background:rgba(244,239,230,0.08);color:var(--fg-dim)}
 .modal-box .m-rule{font-size:12px;color:var(--fg-dim);margin-bottom:14px;padding:12px 14px;background:#141414;border-radius:4px;border-left:3px solid var(--fg);line-height:1.5}
 .modal-box .m-rule strong{color:var(--fg)}
 .modal-box .m-close-x{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--fg-dim);font-size:24px;cursor:pointer;padding:4px 10px;line-height:1}
@@ -671,6 +690,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
         <button class="btn-load-previo" onclick="abrirModalPrevios()" title="Buscá un presupuesto anterior y cargalo para editarlo">📂 Cargar previo</button>
         <button class="btn-load-previo" onclick="abrirModalPdf()" title="Cargá un lead (PDF, imagen o texto) y lo registramos automáticamente en el Sheet de seguimiento">📥 Cargar lead</button>
         <button class="btn-load-previo btn-ficha" onclick="abrirModalFicha()" title="Pegá la ficha del Agendador y solo llena los datos del presupuesto — NO toca el Sheet (el lead ya está registrado)">📋 Pegar ficha del Agendador</button>
+        <button class="btn-load-previo btn-ranking" onclick="abrirModalRanking()" title="Ranking de vendedores: quién viene cotizando y cerrando">🏆 Ranking comercial</button>
         <button class="btn-reset-top" onclick="resetAll()" title="Borra todos los datos y crea un presupuesto nuevo">↺ Empezar de cero</button>
       </div>
     </header>
@@ -1194,6 +1214,28 @@ input,select,textarea{font-family:inherit;font-size:14px}
     <input type="text" class="previos-search" id="previos-search" placeholder="Buscar por cliente, empresa, vendedor o ID..." oninput="filtrarPrevios()" autocomplete="off">
     <div class="previos-status" id="previos-status">Cargando...</div>
     <div class="previos-list" id="previos-list"></div>
+  </div>
+</div>
+
+<!-- MODAL: Ranking comercial -->
+<div class="modal-backdrop" id="ranking-modal" data-backdrop-close="cerrarModalRanking">
+  <div class="modal-box" style="max-width:820px">
+    <button class="m-close-x" onclick="cerrarModalRanking()" aria-label="Cerrar">×</button>
+    <h3>Ranking <em>comercial</em></h3>
+    <div class="m-sub">Quién viene cotizando y cerrando. "Ganado" = presupuesto Confirmado. Ordenado por ganados (confirmados).</div>
+    <div class="rk-periodo">
+      <button id="rp-mes" class="active" onclick="setRankingPeriodo('mes')">Este mes</button>
+      <button id="rp-todo" onclick="setRankingPeriodo('todo')">Todo</button>
+    </div>
+    <div class="ranking-status" id="ranking-status">⏳ Cargando...</div>
+    <table>
+      <thead><tr>
+        <th></th><th>Vendedor</th><th class="num">Cargados</th><th class="num">$ Cotizado</th><th class="num">Ganados</th><th class="num">$ Ganado</th><th class="num">Conv.</th>
+      </tr></thead>
+      <tbody id="ranking-body"></tbody>
+    </table>
+    <h4>Últimos presupuestos</h4>
+    <div class="rk-ultimos" id="ranking-ultimos"></div>
   </div>
 </div>
 
@@ -3241,6 +3283,143 @@ async function abrirModalPrevios() {
 function cerrarModalPrevios() {
   const m = document.getElementById('previos-modal');
   if (m) m.classList.remove('open');
+}
+
+// ============================================================
+// RANKING COMERCIAL — quién viene cotizando y cerrando.
+// Lee ?action=dashboard (mismo endpoint que el dashboard), agrega
+// por vendedor del lado del cliente. "Ganado" = estado Confirmado.
+// ============================================================
+const RANKING_CACHE_KEY = 'lf_ranking_cache_v1';
+const RANKING_CACHE_MS = 5 * 60 * 1000;
+let _rankingData = null;
+let _rankingPeriodo = 'mes'; // 'mes' | 'todo'
+
+// Misma normalización que el presupuestos-dashboard (que las dos vistas coincidan)
+function normalizeVendedorLF_(v) {
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  const s = raw.toLowerCase();
+  if (s==='jp'||s==='juanpi'||s==='juanp'||s.includes('polaco')||s.includes('juan pablo')||s.includes('aduna')) return 'JP';
+  if (s==='colo'||s==='jr'||s==='juanr'||s.includes('raffinetti')) return 'Colo';
+  if (s==='ako'||s.includes('caprarola')) return 'Ako';
+  if (s==='camba'||s==='sc'||s==='santi'||s==='santiago'||s==='negro'||s.includes('cambaceres')) return 'Camba';
+  if (s==='chino'||s.includes('griep')) return 'Chino';
+  if (s==='dolo'||s==='dolores'||s.includes('bolo')) return 'Dolo';
+  if (s==='og') return 'OG';
+  if (s==='tdn') return 'TDN';
+  if (s==='wlf') return 'WLF';
+  return raw;
+}
+
+async function abrirModalRanking() {
+  document.getElementById('ranking-modal').classList.add('open');
+  document.getElementById('ranking-status').textContent = '⏳ Cargando presupuestos...';
+  document.getElementById('ranking-body').innerHTML = '';
+  document.getElementById('ranking-ultimos').innerHTML = '';
+  try {
+    _rankingData = await fetchRankingData_();
+    renderRanking_();
+  } catch (err) {
+    console.error(err);
+    document.getElementById('ranking-status').textContent = '⚠️ No se pudo cargar el ranking. ' + (err.message || '');
+  }
+}
+
+function cerrarModalRanking() {
+  const m = document.getElementById('ranking-modal');
+  if (m) m.classList.remove('open');
+}
+
+async function fetchRankingData_() {
+  // Cache 5 min en localStorage para no pegarle al endpoint en cada apertura
+  try {
+    const cached = JSON.parse(localStorage.getItem(RANKING_CACHE_KEY) || 'null');
+    if (cached && cached.t && (Date.now() - cached.t) < RANKING_CACHE_MS && Array.isArray(cached.items)) {
+      return cached.items;
+    }
+  } catch (e) {}
+  const r = await fetch(APPS_SCRIPT_URL + '?action=dashboard', { method: 'GET' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const data = await r.json();
+  if (!data.ok) throw new Error(data.error || 'Apps Script devolvió error');
+  const items = data.items || [];
+  try { localStorage.setItem(RANKING_CACHE_KEY, JSON.stringify({ t: Date.now(), items })); } catch (e) {}
+  return items;
+}
+
+function setRankingPeriodo(p) {
+  _rankingPeriodo = p;
+  document.getElementById('rp-mes').classList.toggle('active', p === 'mes');
+  document.getElementById('rp-todo').classList.toggle('active', p === 'todo');
+  renderRanking_();
+}
+
+function rankingEnPeriodo_(it) {
+  if (_rankingPeriodo === 'todo') return true;
+  const m = String(it.fechaEnvio || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return false;
+  const now = new Date();
+  return parseInt(m[2], 10) === (now.getMonth() + 1) && parseInt(m[3], 10) === now.getFullYear();
+}
+
+function renderRanking_() {
+  if (!_rankingData) return;
+  const fmtM = n => (Number(n) > 0 ? '$ ' + Math.round(n).toLocaleString('es-AR') : '—');
+
+  // --- Ranking (filtrado por período) ---
+  const filtered = _rankingData.filter(rankingEnPeriodo_);
+  const map = {};
+  filtered.forEach(it => {
+    const v = normalizeVendedorLF_(it.vendedor);
+    if (!v) return;
+    if (!map[v]) map[v] = { vendedor: v, cargados: 0, montoCotizado: 0, confirmados: 0, montoGanado: 0 };
+    const g = map[v];
+    const monto = Number(it.monto) || 0;
+    g.cargados++;
+    g.montoCotizado += monto;
+    if (String(it.estado) === 'Confirmado') { g.confirmados++; g.montoGanado += monto; }
+  });
+  // Orden por # confirmados (ganados): robusto aunque falte el monto en
+  // muchas filas. Monto ganado y cargados como desempate.
+  const rows = Object.values(map).sort((a, b) =>
+    b.confirmados - a.confirmados || b.montoGanado - a.montoGanado || b.cargados - a.cargados);
+
+  const periodoTxt = _rankingPeriodo === 'mes' ? 'este mes' : 'todo el tiempo';
+  document.getElementById('ranking-status').textContent = rows.length
+    ? `${filtered.length} presupuestos · ${periodoTxt}`
+    : `Sin presupuestos cargados ${periodoTxt}.`;
+
+  const medals = ['🥇', '🥈', '🥉'];
+  document.getElementById('ranking-body').innerHTML = rows.map((g, i) => {
+    const conv = g.cargados ? Math.round(g.confirmados / g.cargados * 100) : 0;
+    const medal = medals[i] || `<span class="rk-pos">${i + 1}</span>`;
+    return `<tr>
+      <td class="rk-medal">${medal}</td>
+      <td class="rk-name">${esc(g.vendedor)}</td>
+      <td class="num">${g.cargados}</td>
+      <td class="num">${fmtM(g.montoCotizado)}</td>
+      <td class="num rk-win">${g.confirmados}</td>
+      <td class="num rk-win">${fmtM(g.montoGanado)}</td>
+      <td class="num">${conv}%</td>
+    </tr>`;
+  }).join('');
+
+  // --- Últimos presupuestos (los más recientes por orden de carga real en
+  // el Sheet — más robusto que ordenar por fechaEnvio, que a veces trae
+  // typos como "2029" que dominarían el orden). ---
+  const ultimos = _rankingData.slice(-10).reverse();
+  document.getElementById('ranking-ultimos').innerHTML = ultimos.map(it => {
+    const v = normalizeVendedorLF_(it.vendedor) || '—';
+    const estado = String(it.estado || '');
+    const cls = estado === 'Confirmado' ? 'win' : estado === 'Perdido' ? 'lose' : 'mid';
+    return `<div class="rk-u">
+      <div class="rk-u-fecha">${esc(it.fechaEnvio || '—')}</div>
+      <div class="rk-u-main"><strong>${esc(v)}</strong> · ${esc(it.empresa || it.contacto || '—')}</div>
+      <div class="rk-u-monto">${fmtM(Number(it.monto) || 0)}</div>
+      <div class="rk-u-estado rk-e-${cls}">${esc(estado || '—')}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderPreviosList(items) {

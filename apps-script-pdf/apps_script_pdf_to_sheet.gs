@@ -23,6 +23,7 @@
 const SHEET_ID = '1MrczSE46x3ecpUCuHJsTYI5Gm3VEvp33GtTPyBzsg98';
 const TAB_GID = 0;
 const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const GEMINI_MODEL_FALLBACK = 'gemini-2.5-flash'; // último recurso si flash-lite tira 503 (saturado)
 
 const POSIBLES_CALENDAR_NAME = 'LF Posibles';
 const POSIBLES_CALENDAR_COLOR = CalendarApp.EventColor.BLUE; // Azul Arándano (Blueberry, colorId 9)
@@ -79,6 +80,18 @@ function doPost(e) {
       });
     }
 
+    // Acción multi-jornada: crea N POSIBLES (uno por fecha) para la misma
+    // propuesta repetida en varias fechas (ej VIP Coliseo × 4 miércoles).
+    // Devuelve un array de eventos en el mismo orden que `fechas`.
+    // Si una fecha falla (no parsea, etc) el error queda en ese ítem y
+    // el resto sigue — no aborta todo.
+    if (body.action === 'createPosibleEvents') {
+      return jsonResponse({
+        ok: true,
+        events: createPosibleEventsBulk(body.fechas, body.cliente, body.pax)
+      });
+    }
+
     // Acción: actualizar la columna "Se agendo en Calendar?" (T) de un presupuesto
     // ya escrito por el bound v4.0. Reintenta si la fila todavía no apareció
     // (race condition con el bound que recibe el POST en paralelo desde el cotizador).
@@ -89,7 +102,14 @@ function doPost(e) {
     // Caso 1: registro confirmado con datos editados por el usuario
     //         (no se vuelve a llamar a Gemini, se escribe directo)
     if (body.confirmedData && !body.dryRun) {
-      return jsonResponse(registrarConfirmado(body.confirmedData, body.idempotencyKey, body.calendarEventUrl));
+      // Multi-jornada: el frontend puede mandar `calendarEventUrls` (array)
+      // en lugar de `calendarEventUrl` (singular). Los joineamos con salto
+      // de línea para guardar las N URLs en la celda T del Sheet.
+      let calendarUrlField = body.calendarEventUrl;
+      if (Array.isArray(body.calendarEventUrls) && body.calendarEventUrls.length) {
+        calendarUrlField = body.calendarEventUrls.filter(Boolean).join('\n');
+      }
+      return jsonResponse(registrarConfirmado(body.confirmedData, body.idempotencyKey, calendarUrlField));
     }
 
     // Caso 2: extracción inicial desde input (PDF / imagen / texto libre)
@@ -196,6 +216,47 @@ function resolveInput(body) {
   throw new Error('Falta input: enviá pdfBase64, imageBase64 o text');
 }
 
+// Reintenta la llamada a Gemini ante errores transitorios (503 saturado,
+// 429 rate-limit, 500 interno). Un 503 vuelve casi instantáneo, así que
+// reintentar es barato. Backoff entre intentos; si flash-lite sigue caído
+// tras agotar los reintentos, prueba el modelo de fallback (capacidad
+// separada). Errores no transitorios (400/403: API key o payload) cortan
+// al toque, sin reintentar al pedo.
+function callGeminiWithRetry_(apiKey, payload) {
+  const models = [GEMINI_MODEL, GEMINI_MODEL_FALLBACK];
+  const backoffMs = [1500, 3000];
+  let lastCode = 0, lastBody = '';
+
+  for (let m = 0; m < models.length; m++) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${models[m]}:generateContent?key=${apiKey}`;
+    for (let attempt = 0; attempt <= backoffMs.length; attempt++) {
+      const res = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      const code = res.getResponseCode();
+      if (code === 200) return res;
+
+      lastCode = code;
+      lastBody = res.getContentText();
+
+      // Solo 503/429/500 son transitorios; el resto (400/403…) falla ya.
+      if (code !== 503 && code !== 429 && code !== 500) {
+        throw new Error(`Gemini ${code}: ${lastBody.slice(0, 500)}`);
+      }
+      if (attempt < backoffMs.length) Utilities.sleep(backoffMs[attempt]);
+    }
+    // Reintentos agotados con este modelo → pasamos al fallback.
+  }
+
+  if (lastCode === 503 || lastCode === 429) {
+    throw new Error('Gemini está saturado en este momento. Reintentá en un minuto (el documento está OK).');
+  }
+  throw new Error(`Gemini ${lastCode}: ${String(lastBody).slice(0, 500)}`);
+}
+
 function extractFromInput(input) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error('Falta GEMINI_API_KEY en Script Properties');
@@ -207,7 +268,6 @@ function extractFromInput(input) {
     ? { text: 'Lead recibido (texto libre, puede venir de mail/WhatsApp/notas):\n\n' + input.content }
     : { inline_data: { mime_type: input.mimeType, data: input.base64 } };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const payload = {
     contents: [{
       parts: [firstPart, { text: prompt }]
@@ -219,18 +279,7 @@ function extractFromInput(input) {
     }
   };
 
-  const res = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  });
-
-  const code = res.getResponseCode();
-  if (code !== 200) {
-    throw new Error(`Gemini ${code}: ${res.getContentText().slice(0, 500)}`);
-  }
-
+  const res = callGeminiWithRetry_(apiKey, payload);
   const json = JSON.parse(res.getContentText());
   const text = json.candidates && json.candidates[0]
     && json.candidates[0].content && json.candidates[0].content.parts
@@ -246,9 +295,29 @@ function extractFromInput(input) {
 
   const out = {};
   HEADERS.forEach(h => { out[h] = (parsed[h] != null ? String(parsed[h]) : '').trim(); });
+  // Guardia anti-alucinación: el schema obliga a Gemini a devolver algo en
+  // "Fecha Evento" aunque el documento no traiga fecha, y a veces copia el
+  // nombre del cliente. Si no parece una fecha, se blanquea para que el
+  // campo quede vacío en el form y el usuario la cargue a mano.
+  if (out['Fecha Evento'] && !looksLikeFecha_(out['Fecha Evento'])) {
+    out['Fecha Evento'] = '';
+  }
+  // Campo extra para multi-jornada (no es columna del Sheet, lo consume el frontend
+  // para mostrar chips de fechas y crear N POSIBLES en Calendar).
+  out.fechas_individuales = Array.isArray(parsed.fechas_individuales)
+    ? parsed.fechas_individuales.map(s => String(s || '').trim()).filter(Boolean)
+    : [];
   out.INTERNAL_FILENAME = input.filename;
   out.INTERNAL_SOURCE = input.kind; // 'pdf' | 'image' | 'text'
   return out;
+}
+
+// true si el texto contiene algo "de fecha": un dígito, un mes o un día de semana.
+function looksLikeFecha_(s) {
+  const t = String(s).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/\d/.test(t)) return true;
+  return /\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(t);
 }
 
 function buildResponseSchema() {
@@ -256,10 +325,19 @@ function buildResponseSchema() {
   // los 22 campos como strings. No usamos `enum` porque Gemini rechaza
   // strings vacíos dentro de enum, y muchos de estos campos deben poder
   // quedar vacíos. El prompt ya instruye qué valores son válidos.
+  //
+  // Campo extra `fechas_individuales` (opcional, no es columna del Sheet):
+  // se usa cuando el PDF cubre la misma propuesta repetida en N fechas
+  // (ej "4 miércoles de junio"). El frontend lo usa para crear N POSIBLES
+  // en Calendar manteniendo una sola fila en el Sheet.
   const properties = {};
   HEADERS.forEach(h => {
     properties[h] = { type: 'string' };
   });
+  properties.fechas_individuales = {
+    type: 'array',
+    items: { type: 'string' }
+  };
   return {
     type: 'object',
     properties: properties,
@@ -280,28 +358,34 @@ function buildPrompt(kind) {
     JSON.stringify(HEADERS, null, 2),
     '',
     'Reglas para cada campo:',
-    '- "Contacto": persona contactada del lado del cliente (ej: "Daniela Castro").',
-    '- "Cliente / Empresa": empresa o "Particular" para eventos sociales (ej: "Danone", "PedidosYa", "Particular").',
-    '- "Cantidad Personas": número entero (solo el número, sin "pax"). Si dice rango "60-70", devolvé "60-70".',
+    '- "Contacto": persona contactada del lado del cliente (ej: "Daniela Castro", "Ricky Dordoni"). Es la persona, no la empresa.',
+    '- "Cliente / Empresa": empresa que paga / cuenta corporativa, o "Particular" para eventos personales. SOLO si aparece explícitamente en el PDF (ej: "Danone", "Microsoft", "PedidosYa"). Si el PDF está dirigido a una persona y no aclara empresa, dejá "" — NO confundas con el lugar del evento. La locación NO es el cliente: "Teatro Coliseo" o "Hotel X" son la sede, no la cuenta.',
+    '- "Cantidad Personas": número entero (solo el número, sin "pax"). Si dice rango "60-70", devolvé "60-70". Si son N fechas con el mismo pax por fecha (ej "4 miércoles × 40 pax"), poné el pax POR FECHA, no el agregado.',
     '- "Estado Presupuesto": dejá string vacío "" (lo completa el equipo después).',
     `- "Vendedor": uno de ${JSON.stringify(VENDEDORES)} si aparece firmado o mencionado, sino "".`,
     `- "Tipo de Evento": uno de ${JSON.stringify(TIPOS_EVENTO)}, el que mejor encaje. Si nada encaja, "".`,
     '- "Fecha Envío": "" (lo completa el sistema con la fecha de hoy).',
-    '- "Fecha Evento": copiá tal cual aparece (ej: "jueves 4 de junio", "9/05/2026", "26 de junio"). No la conviertas.',
+    '- "Fecha Evento": copiá tal cual aparece (ej: "jueves 4 de junio", "9/05/2026", "26 de junio"). No la conviertas. Tiene que ser una FECHA (día, mes y/o año). Si el documento NO menciona la fecha del evento, devolvé "" — NUNCA pongas un nombre de persona, empresa o lugar acá. Si son MÚLTIPLES fechas de la misma propuesta (ej "3, 10, 17 y 24 de junio" o "4 miércoles de junio: 3, 10, 17, 24"), poné el rango completo legible aquí (ej: "3, 10, 17 y 24 de junio 2026").',
     '- "Fecha Último Contacto": "".',
-    '- "Mes": deducir del año/mes del evento en formato "mes 26" (ej: "junio 26", "mayo 26"). Si la fecha no es clara, "".',
+    '- "Mes": deducir del año/mes del evento en formato "mes 26" (ej: "junio 26", "mayo 26"). Si la fecha no es clara, "". Si son varias fechas del mismo mes, usá ese mes.',
     '- "ID Presupuesto": "" (lo asigna el sistema).',
     '- "Teléfono / WhatsApp": si aparece teléfono del contacto.',
     '- "Email": si aparece email del contacto.',
-    '- "Nombre Evento": título o referencia del evento si aparece (ej: "Family Day ZS").',
-    '- "Locación": dirección o referencia (ej: "Av. del Libertador 2601" o "Vivanco 1509, Tigre").',
-    '- "Detalle Cotizado": resumen CORTO en una línea de las opciones cotizadas (ej: "Tapeo A + Barra Clasica + Dulce + Sonido"). NO copies todo el menú línea por línea, hacé un resumen ejecutivo.',
+    '- "Nombre Evento": título o referencia del evento si aparece (ej: "Family Day ZS", "VIP Teatro Coliseo").',
+    '- "Locación": dirección o referencia del lugar donde se hace el evento (ej: "Av. del Libertador 2601", "Teatro Coliseo", "Vivanco 1509, Tigre"). Es DISTINTA de "Cliente / Empresa".',
+    '- "Detalle Cotizado": resumen CORTO en una línea de las opciones cotizadas (ej: "Tapeo A + Barra Clasica + Dulce + Sonido"). NO copies todo el menú línea por línea, hacé un resumen ejecutivo. Si son N fechas idénticas, agregá " · × N fechas" al final (ej: "Finger food 5 bocados + Salentein · × 4 fechas").',
     '- "Canal de adquisición": "Cliente Existente" si la empresa aparece varias veces en presupuestos LF (Danone, PedidosYa, Microsoft, Albaugh, ZS, etc.), "Vendedor" si fue por contacto del equipo, "Web" si pidieron por la web. Si no es claro, "".',
     '- "Resultado": "".',
     '- "Motivo de Pérdida": "".',
     '- "Se agendo en Calendar?": "".',
-    '- "Observaciones": cualquier dato extra relevante que no entró en otro campo (forma de pago especial, requisitos, etc.). Mantenelo corto.',
+    '- "Observaciones": cualquier dato extra relevante que no entró en otro campo (forma de pago especial, requisitos, etc.). Mantenelo corto. Si hay multi-jornada con un total agregado distinto al por-fecha, incluí "$X/fecha · TOTAL $Y + IVA" acá.',
     '- "INTERNAL ID": "".',
+    '',
+    'CAMPO EXTRA — "fechas_individuales": array de strings (puede ser []).',
+    '  - Si el PDF cubre la MISMA propuesta repetida en N fechas (ej "4 miércoles de junio: 3, 10, 17 y 24", "todos los viernes de mayo", "5, 6 y 7 de mayo"), llená este array con cada fecha por separado en formato D/M/YYYY (ej ["3/6/2026","10/6/2026","17/6/2026","24/6/2026"]).',
+    '  - Si es una sola fecha, dejalo como [] (array vacío). NO repitas la única fecha.',
+    '  - Si son N fechas con menús/pax DISTINTOS (ej civil un día + fiesta otro día), igual incluí las N fechas acá. El usuario decide después si agendar todas o no.',
+    '  - Año: si el PDF dice "junio 2026" usá 2026. Si no aclara año, asumí el próximo en el calendario.',
     '',
     'Si algún dato NO está presente, devolvé string vacío "" para ese campo. NO inventes datos.',
     'Si el input es informal (ej: "30 pax / Jorge Lanza / propuesta general / 26 de junio"), igual extraé lo que puedas: nombre del contacto, pax, tipo de evento, fecha, etc. Lo que no esté → "".',
@@ -347,10 +431,13 @@ function nextIdPresupuesto() {
 // `appendRow()` / `getLastRow()` que se "estiran" cuando hay validación,
 // formato condicional o formulas vacías muchas filas abajo.
 function findLastWrittenRow_(sheet) {
+  // K (ID Presupuesto) queda afuera a propósito: si un append crashea
+  // entre setValue(K) y los setValues posteriores queda una fila
+  // huérfana con solo K. Esa huérfana NO debe inflar lastRow y empujar
+  // nuevos entries al final. A/B/V son ancla real.
   const primaryCols = [
     HEADERS.indexOf('Contacto') + 1,            // A
     HEADERS.indexOf('Cliente / Empresa') + 1,    // B
-    HEADERS.indexOf('ID Presupuesto') + 1,        // K
     HEADERS.indexOf('INTERNAL ID') + 1            // V
   ];
   const maxRow = sheet.getMaxRows();
@@ -590,6 +677,20 @@ function createPosibleEvent(fechaEvento, cliente, pax) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function createPosibleEventsBulk(fechas, cliente, pax) {
+  if (!Array.isArray(fechas) || fechas.length === 0) {
+    throw new Error('createPosibleEventsBulk: fechas debe ser un array no vacío');
+  }
+  return fechas.map(f => {
+    try {
+      const ev = createPosibleEvent(f, cliente, pax);
+      return Object.assign({ ok: true, fechaInput: f }, ev);
+    } catch (err) {
+      return { ok: false, fechaInput: f, error: err.message };
+    }
+  });
 }
 
 function buildCalendarEventUrl(eventId, calendarId) {

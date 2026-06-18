@@ -23,6 +23,7 @@
 const SHEET_ID = '1MrczSE46x3ecpUCuHJsTYI5Gm3VEvp33GtTPyBzsg98';
 const TAB_GID = 0;
 const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const GEMINI_MODEL_FALLBACK = 'gemini-2.5-flash'; // último recurso si flash-lite tira 503 (saturado)
 
 const POSIBLES_CALENDAR_NAME = 'LF Posibles';
 const POSIBLES_CALENDAR_COLOR = CalendarApp.EventColor.BLUE; // Azul Arándano (Blueberry, colorId 9)
@@ -215,6 +216,47 @@ function resolveInput(body) {
   throw new Error('Falta input: enviá pdfBase64, imageBase64 o text');
 }
 
+// Reintenta la llamada a Gemini ante errores transitorios (503 saturado,
+// 429 rate-limit, 500 interno). Un 503 vuelve casi instantáneo, así que
+// reintentar es barato. Backoff entre intentos; si flash-lite sigue caído
+// tras agotar los reintentos, prueba el modelo de fallback (capacidad
+// separada). Errores no transitorios (400/403: API key o payload) cortan
+// al toque, sin reintentar al pedo.
+function callGeminiWithRetry_(apiKey, payload) {
+  const models = [GEMINI_MODEL, GEMINI_MODEL_FALLBACK];
+  const backoffMs = [1500, 3000];
+  let lastCode = 0, lastBody = '';
+
+  for (let m = 0; m < models.length; m++) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${models[m]}:generateContent?key=${apiKey}`;
+    for (let attempt = 0; attempt <= backoffMs.length; attempt++) {
+      const res = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      const code = res.getResponseCode();
+      if (code === 200) return res;
+
+      lastCode = code;
+      lastBody = res.getContentText();
+
+      // Solo 503/429/500 son transitorios; el resto (400/403…) falla ya.
+      if (code !== 503 && code !== 429 && code !== 500) {
+        throw new Error(`Gemini ${code}: ${lastBody.slice(0, 500)}`);
+      }
+      if (attempt < backoffMs.length) Utilities.sleep(backoffMs[attempt]);
+    }
+    // Reintentos agotados con este modelo → pasamos al fallback.
+  }
+
+  if (lastCode === 503 || lastCode === 429) {
+    throw new Error('Gemini está saturado en este momento. Reintentá en un minuto (el documento está OK).');
+  }
+  throw new Error(`Gemini ${lastCode}: ${String(lastBody).slice(0, 500)}`);
+}
+
 function extractFromInput(input) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error('Falta GEMINI_API_KEY en Script Properties');
@@ -226,7 +268,6 @@ function extractFromInput(input) {
     ? { text: 'Lead recibido (texto libre, puede venir de mail/WhatsApp/notas):\n\n' + input.content }
     : { inline_data: { mime_type: input.mimeType, data: input.base64 } };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const payload = {
     contents: [{
       parts: [firstPart, { text: prompt }]
@@ -238,18 +279,7 @@ function extractFromInput(input) {
     }
   };
 
-  const res = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  });
-
-  const code = res.getResponseCode();
-  if (code !== 200) {
-    throw new Error(`Gemini ${code}: ${res.getContentText().slice(0, 500)}`);
-  }
-
+  const res = callGeminiWithRetry_(apiKey, payload);
   const json = JSON.parse(res.getContentText());
   const text = json.candidates && json.candidates[0]
     && json.candidates[0].content && json.candidates[0].content.parts
@@ -265,6 +295,13 @@ function extractFromInput(input) {
 
   const out = {};
   HEADERS.forEach(h => { out[h] = (parsed[h] != null ? String(parsed[h]) : '').trim(); });
+  // Guardia anti-alucinación: el schema obliga a Gemini a devolver algo en
+  // "Fecha Evento" aunque el documento no traiga fecha, y a veces copia el
+  // nombre del cliente. Si no parece una fecha, se blanquea para que el
+  // campo quede vacío en el form y el usuario la cargue a mano.
+  if (out['Fecha Evento'] && !looksLikeFecha_(out['Fecha Evento'])) {
+    out['Fecha Evento'] = '';
+  }
   // Campo extra para multi-jornada (no es columna del Sheet, lo consume el frontend
   // para mostrar chips de fechas y crear N POSIBLES en Calendar).
   out.fechas_individuales = Array.isArray(parsed.fechas_individuales)
@@ -273,6 +310,14 @@ function extractFromInput(input) {
   out.INTERNAL_FILENAME = input.filename;
   out.INTERNAL_SOURCE = input.kind; // 'pdf' | 'image' | 'text'
   return out;
+}
+
+// true si el texto contiene algo "de fecha": un dígito, un mes o un día de semana.
+function looksLikeFecha_(s) {
+  const t = String(s).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/\d/.test(t)) return true;
+  return /\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(t);
 }
 
 function buildResponseSchema() {
@@ -320,7 +365,7 @@ function buildPrompt(kind) {
     `- "Vendedor": uno de ${JSON.stringify(VENDEDORES)} si aparece firmado o mencionado, sino "".`,
     `- "Tipo de Evento": uno de ${JSON.stringify(TIPOS_EVENTO)}, el que mejor encaje. Si nada encaja, "".`,
     '- "Fecha Envío": "" (lo completa el sistema con la fecha de hoy).',
-    '- "Fecha Evento": copiá tal cual aparece (ej: "jueves 4 de junio", "9/05/2026", "26 de junio"). No la conviertas. Si son MÚLTIPLES fechas de la misma propuesta (ej "3, 10, 17 y 24 de junio" o "4 miércoles de junio: 3, 10, 17, 24"), poné el rango completo legible aquí (ej: "3, 10, 17 y 24 de junio 2026").',
+    '- "Fecha Evento": copiá tal cual aparece (ej: "jueves 4 de junio", "9/05/2026", "26 de junio"). No la conviertas. Tiene que ser una FECHA (día, mes y/o año). Si el documento NO menciona la fecha del evento, devolvé "" — NUNCA pongas un nombre de persona, empresa o lugar acá. Si son MÚLTIPLES fechas de la misma propuesta (ej "3, 10, 17 y 24 de junio" o "4 miércoles de junio: 3, 10, 17, 24"), poné el rango completo legible aquí (ej: "3, 10, 17 y 24 de junio 2026").',
     '- "Fecha Último Contacto": "".',
     '- "Mes": deducir del año/mes del evento en formato "mes 26" (ej: "junio 26", "mayo 26"). Si la fecha no es clara, "". Si son varias fechas del mismo mes, usá ese mes.',
     '- "ID Presupuesto": "" (lo asigna el sistema).',

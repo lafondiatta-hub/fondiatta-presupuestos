@@ -563,6 +563,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .previo-item:hover{background:rgba(244,239,230,0.06);border-color:var(--fg-dim)}
 .previo-item .prev-line1{font-family:'Organetto',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--fg);margin-bottom:4px}
 .previo-item .prev-line2{font-size:11px;color:var(--fg-dim);line-height:1.4}
+.previos-vertodos{display:block;width:100%;margin-top:8px;padding:10px;background:transparent;border:1px dashed var(--border);border-radius:4px;color:var(--fg-dim);font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;cursor:pointer;transition:all .15s ease}
+.previos-vertodos:hover{border-color:var(--accent);color:var(--fg);border-style:solid}
 .previo-item .prev-id{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--acc);margin-right:8px}
 
 /* === MODAL PDF UPLOAD === */
@@ -3245,13 +3247,7 @@ async function abrirModalPrevios() {
         'Todavía no hay presupuestos registrados en el Sheet.';
       return;
     }
-    const totalCache = previosCache.length;
-    const recientes = previosCache.slice(0, PREVIOS_DEFAULT_SHOW);
-    document.getElementById('previos-status').textContent =
-      totalCache > PREVIOS_DEFAULT_SHOW
-        ? `Mostrando los ${recientes.length} más recientes (de ${totalCache}). Buscá por cliente, empresa o ID para ver el resto.`
-        : `${totalCache} presupuestos. Click en uno para cargarlo.`;
-    renderPreviosList(recientes);
+    renderPreviosRecientes();
     setTimeout(() => document.getElementById('previos-search').focus(), 100);
   } catch (err) {
     console.error(err);

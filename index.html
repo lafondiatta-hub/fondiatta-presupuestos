@@ -353,6 +353,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .doc-item .sub{font-size:14px;text-align:right;min-width:110px;font-variant-numeric:tabular-nums}
 .doc-item .unit-price .disc-tag{font-family:'Organetto',sans-serif;font-size:8px;letter-spacing:0.05em;color:var(--danger);font-weight:700;margin-left:5px;vertical-align:middle}
 .doc-item .sub .sub-bruto{color:var(--fg-dim);opacity:.5;font-size:11px;margin-right:5px;font-variant-numeric:tabular-nums}
+.doc-item .sub .sub-free{font-family:'Perfectly',serif;font-style:italic;font-weight:400;color:var(--fg-dim);font-size:12px}
 
 .doc-totals{
   margin-left:auto;
@@ -2463,12 +2464,17 @@ function renderDoc() {
       const dpct = +i.discPct || 0;
       const bruto = i.price * i.qty;
       const net = bruto * (1 - dpct / 100);
-      const unitHtml = dpct > 0
-        ? `${fmt(i.price)} <span class="disc-tag">−${dpct}%</span>`
-        : fmt(i.price);
-      const subHtml = dpct > 0
-        ? `<s class="sub-bruto">${fmt(bruto)}</s> ${fmt(net)}`
-        : fmt(bruto);
+      const isFree = bruto <= 0;
+      const unitHtml = isFree
+        ? '—'
+        : (dpct > 0
+            ? `${fmt(i.price)} <span class="disc-tag">−${dpct}%</span>`
+            : fmt(i.price));
+      const subHtml = isFree
+        ? '<span class="sub-free">Sin cargo</span>'
+        : (dpct > 0
+            ? `<s class="sub-bruto">${fmt(bruto)}</s> ${fmt(net)}`
+            : fmt(bruto));
       return `
       <div class="doc-item">
         <div class="name">${tipoBadge}${esc(i.name)}${descHtml}</div>
@@ -2480,16 +2486,15 @@ function renderDoc() {
     }).join('');
   }
 
-  document.getElementById('d-sub').textContent = fmt(t.subtotal);
+  // El descuento por línea ya se muestra ítem por ítem (tachado + −%),
+  // así que el "Subtotal" del documento va NETO de esos descuentos y NO
+  // repetimos una línea "Descuento por ítems" agregada (duplicaba el dato).
+  document.getElementById('d-sub').textContent = fmt(t.subtotal - t.descItems);
   document.getElementById('d-sub-desc').textContent = fmt(t.subDesc);
   document.getElementById('d-iva').textContent = fmt(t.iva);
 
-  // Descuento por ítems en el documento
-  const dDitemsRow = document.getElementById('d-ditems-row');
-  if (t.descItems > 0) {
-    dDitemsRow.style.display = '';
-    document.getElementById('d-ditems').textContent = '-' + fmt(t.descItems);
-  } else dDitemsRow.style.display = 'none';
+  // "Descuento por ítems" agregado: ya no se muestra (vive en cada línea).
+  document.getElementById('d-ditems-row').style.display = 'none';
 
   // Toggle IVA row in doc
   document.getElementById('d-iva-row').style.display = ivaMode ? '' : 'none';
@@ -2500,14 +2505,10 @@ function renderDoc() {
     if (subRow) subRow.style.display = 'none';
     document.getElementById('d-sub-desc-row').style.display = 'none';
   } else {
-    // MODO AUTOMÁTICO como siempre. Mostramos "Subtotal con descuento"
-    // si hubo descuento global O descuento por ítems.
+    // MODO AUTOMÁTICO. "Subtotal con descuento" sólo si hubo descuento GLOBAL
+    // (el descuento por ítems ya quedó aplicado en el Subtotal neto de arriba).
     if (subRow) subRow.style.display = '';
-    if (t.discount === 0 && t.descItems === 0) {
-      document.getElementById('d-sub-desc-row').style.display = 'none';
-    } else {
-      document.getElementById('d-sub-desc-row').style.display = '';
-    }
+    document.getElementById('d-sub-desc-row').style.display = t.discount > 0 ? '' : 'none';
   }
 
   // Total con etiqueta correcta según IVA mode

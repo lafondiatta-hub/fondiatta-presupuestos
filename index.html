@@ -4703,6 +4703,19 @@ function abrirAgendadorConfirmado(scope) {
   if (horarioInicio)  params.set('horarioInicio', horarioInicio);
   if (horarioFin)     params.set('horarioFin', horarioFin);
 
+  // Menú: mandamos los ítems gastronómicos seleccionados como texto plano
+  // (qty x nombre), separados por " · ". El Agendador los prefilla en
+  // menuDetalle → se ven/editan en el preview y caen en el evento de Calendar.
+  // Excluimos Logística (viáticos/flete) y Servicio (staffing): son ruido para
+  // el menú que lee cocina/operaciones. Si no hay ítems (modo lead sin armar
+  // presupuesto), no se manda nada.
+  const menuItems = items.filter(i => i.tipoServicio !== 'Logística' && i.tipoServicio !== 'Servicio');
+  const menuDetalle = menuItems.map(i => {
+    const extra = i.desc ? ` (${i.desc})` : '';
+    return `${i.qty}x ${i.name}${extra}`;
+  }).join(' · ');
+  if (menuDetalle) params.set('menuDetalle', menuDetalle);
+
   // Handoff de identidad del lead — para que el Agendador haga update en el
   // Sheet de Seguimiento al confirmar, en vez de crear una fila nueva.
   // - scope 'pf' (modal Cargar lead): tenemos el ID humano P-2026-NNN

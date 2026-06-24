@@ -800,6 +800,9 @@ input,select,textarea{font-family:inherit;font-size:14px}
             <option>Vtas La Fondiatta</option>
             <option>Mailing</option>
             <option>IG</option>
+            <option>Planners</option>
+            <option>Agencia</option>
+            <option>No sabemos</option>
           </select>
         </div>
       </div>
@@ -1306,6 +1309,9 @@ input,select,textarea{font-family:inherit;font-size:14px}
             <option value="Vtas La Fondiatta">Vtas La Fondiatta</option>
             <option value="Mailing">Mailing</option>
             <option value="IG">IG</option>
+            <option value="Planners">Planners</option>
+            <option value="Agencia">Agencia</option>
+            <option value="No sabemos">No sabemos</option>
           </select>
         </div>
         <div class="pf-field full"><label>Observaciones</label><textarea id="pf-observaciones"></textarea></div>
@@ -3835,8 +3841,15 @@ async function actualizarLeadConMonto() {
 // Initial render
 renderDoc();
 refreshTotals();
-// Mostrar el badge de sesión si hay un presupuesto previo en localStorage
-updateSessionBadge();
+// El cartel "ya guardado" solo tiene sentido si hay un presupuesto en pantalla.
+// Al abrir la página el formulario arranca vacío (los ítems no se persisten),
+// así que cualquier ID/bandera que haya quedado en localStorage es de una sesión
+// vieja → la limpiamos para no mostrar un cartel engañoso ni pisar su fila.
+if (items.length === 0) {
+  clearPresupuestoSession();
+} else {
+  updateSessionBadge();
+}
 
 // ==================================================================
 // === SUBIR PDF Y REGISTRAR EN SHEET (Gemini → Apps Script) ========

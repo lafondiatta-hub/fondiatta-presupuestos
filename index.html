@@ -2507,7 +2507,7 @@ function docItemsHtml(arr, isManual) {
   if (isManual) {
     return (arr || []).map(i => {
       const tipo = i.tipoServicio || 'Otro';
-      const tipoBadge = `<span class="tipo-badge">${esc(tipo)}</span>`;
+      const tipoBadge = (tipo && tipo !== 'Otro') ? `<span class="tipo-badge">${esc(tipo)}</span>` : '';
       const descHtml = i.desc ? `<small>${esc(i.desc)}</small>` : '';
       return `
       <div class="doc-item" style="grid-template-columns: 1fr">
@@ -2517,7 +2517,7 @@ function docItemsHtml(arr, isManual) {
   }
   return (arr || []).map(i => {
     const tipo = i.tipoServicio || 'Otro';
-    const tipoBadge = `<span class="tipo-badge">${esc(tipo)}</span>`;
+    const tipoBadge = (tipo && tipo !== 'Otro') ? `<span class="tipo-badge">${esc(tipo)}</span>` : '';
     const descHtml = i.desc ? `<small>${esc(i.desc)}</small>` : '';
     const dpct = +i.discPct || 0;
     const bruto = i.price * i.qty;

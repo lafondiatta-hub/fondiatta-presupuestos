@@ -740,9 +740,26 @@ input,select,textarea{font-family:inherit;font-size:14px}
         <label>Nombre del evento (opcional)</label>
         <input id="f-event-name" placeholder="Ej: Summit PeYa Marzo">
       </div>
+      <style>
+        #dias-bar{margin-bottom:12px}
+        #dias-bar .dias-row{display:flex;flex-wrap:wrap;gap:6px;align-items:stretch}
+        #dias-bar .dia-tab{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:6px 26px 6px 11px;background:#0a0a0a;border:1px solid var(--border);border-radius:5px;cursor:pointer;color:var(--fg-dim);font-family:inherit;transition:all .12s;min-width:64px}
+        #dias-bar .dia-tab:hover{border-color:var(--fg-dim)}
+        #dias-bar .dia-tab.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+        #dias-bar .dia-tab.active .dia-fecha{color:var(--bg);opacity:.75}
+        #dias-bar .dia-n{font-size:11px;font-weight:600;letter-spacing:.02em}
+        #dias-bar .dia-fecha{font-size:9.5px;font-variant-numeric:tabular-nums;color:var(--fg-dim)}
+        #dias-bar .dia-fecha.sin{font-style:italic;opacity:.6}
+        #dias-bar .dia-x{position:absolute;top:4px;right:6px;font-size:13px;line-height:1;opacity:.5;cursor:pointer}
+        #dias-bar .dia-x:hover{opacity:1;color:#e57373}
+        #dias-bar .dia-add{padding:6px 12px;background:transparent;border:1px dashed var(--border);border-radius:5px;cursor:pointer;color:var(--fg-dim);font-family:inherit;font-size:11px;transition:all .12s}
+        #dias-bar .dia-add:hover{border-color:var(--fg-dim);color:var(--fg)}
+        #dias-bar .dias-hint{font-size:10px;color:var(--fg-dim);margin-top:6px;line-height:1.4}
+      </style>
+      <div id="dias-bar"></div>
       <div class="field-row">
         <div class="field">
-          <label>Fecha del evento</label>
+          <label>Fecha del evento <span class="dia-activo-tag" id="dia-activo-tag" style="display:none;font-size:9px;color:var(--fg-dim);font-weight:400"></span></label>
           <input id="f-event-date" type="date">
         </div>
         <div class="field">
@@ -1847,6 +1864,128 @@ let ivaMode = false;   // true = con IVA 21%, false = sin IVA (default)
 // para no pisar overrides manuales del vendedor entre transiciones.
 let lastCorpState = false;
 
+// === MULTI-DÍA (multi-jornada con menú propio por día) ===
+// Un presupuesto puede tener varios DÍAS. Cada día tiene su PROPIO menú,
+// fecha, pax y horario. Lo demás (cliente, vendedor, IVA, descuento global,
+// modo de precio) es a nivel presupuesto = compartido por todos los días.
+//
+// Cómo se mantiene la verdad:
+//  - Mientras editás un día, la verdad viva es el array global `items` + los
+//    inputs del DOM (f-event-date, f-pax, f-event-start/end, manual-*).
+//  - `syncActiveDiaFromLive()` vuelca esa verdad viva → dias[activeDia].
+//    Se llama al inicio de calc() y antes de cualquier export, así `dias`
+//    siempre está al día cuando se lee el conjunto.
+//  - `loadDiaToLive(i)` hace lo inverso: vuelca dias[i] → globals/DOM.
+// Con 1 solo día (default) todo se comporta EXACTAMENTE igual que antes.
+let dias = [];
+let activeDia = 0;
+
+const _v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+const _sv = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v == null ? '' : v); };
+function livePrecioMode() { return (document.getElementById('f-precio-mode') || {}).value || 'auto'; }
+
+// Snapshot de la "verdad viva" (globals + DOM) como objeto día.
+function dayFromLive() {
+  return {
+    items: items,
+    fecha: _v('f-event-date'),
+    pax: _v('f-pax'),
+    start: _v('f-event-start'),
+    end: _v('f-event-end'),
+    manualMonto: _v('f-manual-monto'),
+    manualTipo: _v('f-manual-tipo') || 'persona',
+    manualJornadas: _v('f-manual-jornadas') || '1'
+  };
+}
+// Inicializa `dias` con un único día capturando el estado actual.
+function initDiasFromLive() {
+  dias = [ dayFromLive() ];
+  activeDia = 0;
+  renderDiaTabs();
+}
+// Vuelca verdad viva → dias[activeDia]. Idempotente y barato.
+function syncActiveDiaFromLive() {
+  if (!dias.length) { initDiasFromLive(); return; }
+  if (activeDia < 0 || activeDia >= dias.length) activeDia = 0;
+  dias[activeDia] = dayFromLive();
+}
+// Vuelca dias[i] → globals/DOM (cambia el día que estás editando).
+function loadDiaToLive(i) {
+  const d = dias[i]; if (!d) return;
+  activeDia = i;
+  items = d.items || (d.items = []);
+  _sv('f-event-date', d.fecha);
+  _sv('f-pax', d.pax);
+  _sv('f-event-start', d.start);
+  _sv('f-event-end', d.end);
+  _sv('f-manual-monto', d.manualMonto);
+  _sv('f-manual-tipo', d.manualTipo || 'persona');
+  _sv('f-manual-jornadas', d.manualJornadas || '1');
+}
+function switchDia(i) {
+  if (i === activeDia) return;
+  syncActiveDiaFromLive();
+  loadDiaToLive(i);
+  renderDiaTabs();
+  renderItems();
+  refreshTotals();
+}
+function addDia() {
+  syncActiveDiaFromLive();
+  const prev = dias[activeDia] || {};
+  dias.push({
+    items: [], fecha: '', pax: prev.pax || '',
+    start: prev.start || '', end: prev.end || '',
+    manualMonto: '', manualTipo: prev.manualTipo || 'persona', manualJornadas: '1'
+  });
+  switchDia(dias.length - 1);
+}
+function removeDia(i) {
+  if (dias.length <= 1) return;
+  const label = 'Día ' + (i + 1);
+  if (!confirm('¿Quitar ' + label + ' del presupuesto? Se borra su menú y su fecha.')) return;
+  dias.splice(i, 1);
+  if (activeDia >= dias.length) activeDia = dias.length - 1;
+  loadDiaToLive(activeDia);
+  renderDiaTabs();
+  renderItems();
+  refreshTotals();
+}
+// Fecha corta (dd/MM) para el rótulo del tab; '' si no hay fecha.
+function fechaCortaTab(yyyymmdd) {
+  if (!yyyymmdd) return '';
+  const m = String(yyyymmdd).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  return m[3] + '/' + m[2];
+}
+function renderDiaTabs() {
+  const bar = document.getElementById('dias-bar');
+  if (!bar) return;
+  syncActiveDiaFromLive();
+  const multi = dias.length > 1;
+  let html = '<div class="dias-row">';
+  dias.forEach((d, i) => {
+    const fc = fechaCortaTab(d.fecha);
+    const sub = fc ? '<span class="dia-fecha">' + fc + '</span>' : '<span class="dia-fecha sin">sin fecha</span>';
+    const rm = multi ? '<span class="dia-x" title="Quitar este día" onclick="event.stopPropagation();removeDia(' + i + ')">×</span>' : '';
+    html += '<button type="button" class="dia-tab' + (i === activeDia ? ' active' : '') + '" onclick="switchDia(' + i + ')">'
+          + '<span class="dia-n">Día ' + (i + 1) + '</span>' + sub + rm + '</button>';
+  });
+  html += '<button type="button" class="dia-add" onclick="addDia()" title="Agregar otra jornada con su propio menú">+ Agregar día</button>';
+  html += '</div>';
+  html += '<div class="dias-hint">' + (multi
+      ? 'Evento de <b>' + dias.length + ' días</b> · cada día tiene su propio menú, fecha y pax. Clickeá un día para editarlo.'
+      : 'Si el evento dura varios días con menú distinto cada día, agregá días acá.')
+    + '</div>';
+  bar.innerHTML = html;
+  // Rótulo "Día N" junto al input de fecha, para que el comercial sepa qué día edita.
+  const tag = document.getElementById('dia-activo-tag');
+  if (tag) {
+    if (multi) { tag.textContent = '· Día ' + (activeDia + 1); tag.style.display = ''; }
+    else { tag.style.display = 'none'; }
+  }
+}
+
 // === SESSION TRACKING — dedup de revisiones de presupuestos ===
 // El UUID se genera al primer export y se persiste en localStorage.
 // Mientras el vendedor no apriete "Empezar de cero", todo re-export va con
@@ -2182,41 +2321,47 @@ function setIvaMode(on) {
 }
 
 // === CALC ===
+// Subtotal de UN día en modo manual (p/p × pax × jornadas, o total global).
+function calcDiaManual(d) {
+  const monto = parseFloat(d.manualMonto) || 0;
+  const tipo = d.manualTipo || 'persona';
+  const jornadas = parseInt(d.manualJornadas) || 1;
+  const paxNum = parseInt(d.pax) || 0;
+  return tipo === 'persona' ? monto * paxNum * jornadas : monto;
+}
+// Bruto y descuento-por-ítems de UN día en modo automático.
+function calcDiaAuto(d) {
+  const its = d.items || [];
+  const bruto = its.reduce((s, i) => s + (i.price * i.qty), 0);
+  const di = its.reduce((s, i) => s + (i.price * i.qty * ((+i.discPct || 0) / 100)), 0);
+  return { bruto, di };
+}
 function calc() {
-  // === MODO MANUAL ===
-  // Los ítems son sólo descripción. El total viene del campo manual.
-  const precioMode = (document.getElementById('f-precio-mode') || {}).value;
-  if (precioMode === 'manual') {
-    const monto = parseFloat((document.getElementById('f-manual-monto') || {}).value) || 0;
-    const tipo = (document.getElementById('f-manual-tipo') || {}).value || 'persona';
-    const jornadas = parseInt((document.getElementById('f-manual-jornadas') || {}).value) || 1;
-    const paxNum = parseInt((document.getElementById('f-pax') || {}).value) || 0;
+  // Aseguramos que dias[activeDia] refleje lo que está cargado ahora mismo.
+  syncActiveDiaFromLive();
+  const isManual = livePrecioMode() === 'manual';
+  const act = dias[activeDia] || {};
 
+  // === MODO MANUAL === (igual que antes, sumado sobre todos los días)
+  // El descuento global NO aplica en manual (se respeta el comportamiento previo).
+  if (isManual) {
     let subtotal = 0;
-    if (tipo === 'persona') {
-      // monto = valor p/p → total = p/p × pax × jornadas
-      subtotal = monto * paxNum * jornadas;
-    } else {
-      // monto = total global ya tipeado
-      subtotal = monto;
-    }
-
+    dias.forEach(d => { subtotal += calcDiaManual(d); });
     const iva = ivaMode ? subtotal * 0.21 : 0;
-    const total = subtotal + iva;
     return {
-      subtotal, descItems: 0, discount: 0, subDesc: subtotal, iva, total,
+      subtotal, descItems: 0, discount: 0, subDesc: subtotal, iva, total: subtotal + iva,
       isManual: true,
-      manualTipo: tipo,
-      manualMonto: monto,
-      manualJornadas: jornadas
+      manualTipo: act.manualTipo || 'persona',
+      manualMonto: parseFloat(act.manualMonto) || 0,
+      manualJornadas: parseInt(act.manualJornadas) || 1
     };
   }
 
-  // === MODO AUTOMÁTICO (default, igual que antes) ===
-  // subtotal = bruto (sin tocar). descItems = suma de descuentos por línea.
+  // === MODO AUTOMÁTICO (default) — sumado sobre todos los días ===
+  // subtotal = bruto. descItems = suma de descuentos por línea de todos los días.
   // El descuento global se aplica DESPUÉS, sobre la base ya neta de ítems.
-  const subtotal = items.reduce((s, i) => s + (i.price * i.qty), 0);
-  const descItems = items.reduce((s, i) => s + (i.price * i.qty * ((+i.discPct || 0) / 100)), 0);
+  let subtotal = 0, descItems = 0;
+  dias.forEach(d => { const r = calcDiaAuto(d); subtotal += r.bruto; descItems += r.di; });
   const baseNeta = subtotal - descItems;
   let discount = 0;
   if (discountType === 'pct') discount = baseNeta * (discountValue / 100);
@@ -2257,9 +2402,11 @@ function refreshTotals() {
 function updateBanners() {
   const catalogMode = document.getElementById('f-catalog-mode').value.trim();
   const isPersonalizado = !catalogMode;
-  const hasItems = items.length > 0;
+  // Multi-jornada: miramos los ítems de TODOS los días, no sólo el activo.
+  const allItems = dias.length ? dias.reduce((a, d) => a.concat(d.items || []), []) : items;
+  const hasItems = allItems.length > 0;
   // Detectar si hay algún ítem de logística o viáticos (sea del catálogo o custom)
-  const hasLogistica = items.some(i => {
+  const hasLogistica = allItems.some(i => {
     const cat = (i.cat || '').toLowerCase();
     const name = (i.name || '').toLowerCase();
     const desc = (i.desc || '').toLowerCase();
@@ -2315,8 +2462,124 @@ function checkCorpAutoIva() {
 }
 
 // === RENDER DOC ===
+// Cantidad total de ítems sumando todos los días.
+function totalItemsCount() {
+  return dias.reduce((s, d) => s + ((d.items && d.items.length) || 0), 0);
+}
+// Texto de detalle de un ítem para el Sheet: "[tipo] qtyx nombre (desc)".
+function _itemDetalleTxt(i) {
+  const tipo = i.tipoServicio ? `[${i.tipoServicio}] ` : '';
+  const extra = i.desc ? ` (${i.desc})` : '';
+  return `${tipo}${i.qty}x ${i.name}${extra}`;
+}
+// Detalle de TODO el presupuesto para el Sheet. Con 1 día = igual que antes;
+// con multi-jornada antepone "DÍA N (dd/MM): ..." y separa los días con " || ".
+function exportDetalleText() {
+  if (dias.length <= 1) {
+    const arr = (dias[0] && dias[0].items) || items;
+    return arr.map(_itemDetalleTxt).join(' · ');
+  }
+  return dias.map((d, idx) => {
+    const fc = d.fecha ? ` (${fechaCortaTab(d.fecha)})` : '';
+    return `DÍA ${idx + 1}${fc}: ${(d.items || []).map(_itemDetalleTxt).join(' · ')}`;
+  }).join('  ||  ');
+}
+// itemsJson para el Sheet, aplanando todos los días. Con multi-jornada cada
+// ítem lleva `dia` y `diaFecha` para poder reconstruir el detalle por jornada.
+function exportItemsJson() {
+  const multi = dias.length > 1;
+  const flat = [];
+  dias.forEach((d, idx) => {
+    (d.items || []).forEach(i => {
+      const o = {
+        cat: i.cat, name: i.name, price: i.price, qty: i.qty,
+        unit: i.unit, desc: i.desc, custom: !!i.custom,
+        discPct: +i.discPct || 0, tipoServicio: i.tipoServicio
+      };
+      if (multi) { o.dia = idx + 1; o.diaFecha = d.fecha || ''; }
+      flat.push(o);
+    });
+  });
+  return JSON.stringify(flat);
+}
+// HTML de los ítems de UN día (mismo markup que usaba el doc antes).
+function docItemsHtml(arr, isManual) {
+  if (isManual) {
+    return (arr || []).map(i => {
+      const tipo = i.tipoServicio || 'Otro';
+      const tipoBadge = `<span class="tipo-badge">${esc(tipo)}</span>`;
+      const descHtml = i.desc ? `<small>${esc(i.desc)}</small>` : '';
+      return `
+      <div class="doc-item" style="grid-template-columns: 1fr">
+        <div class="name">${tipoBadge}${esc(i.name)}${descHtml}</div>
+      </div>`;
+    }).join('');
+  }
+  return (arr || []).map(i => {
+    const tipo = i.tipoServicio || 'Otro';
+    const tipoBadge = `<span class="tipo-badge">${esc(tipo)}</span>`;
+    const descHtml = i.desc ? `<small>${esc(i.desc)}</small>` : '';
+    const dpct = +i.discPct || 0;
+    const bruto = i.price * i.qty;
+    const net = bruto * (1 - dpct / 100);
+    const isFree = bruto <= 0;
+    const unitHtml = isFree
+      ? '—'
+      : (dpct > 0 ? `${fmt(i.price)} <span class="disc-tag">−${dpct}%</span>` : fmt(i.price));
+    const subHtml = isFree
+      ? '<span class="sub-free">Sin cargo</span>'
+      : (dpct > 0 ? `<s class="sub-bruto">${fmt(bruto)}</s> ${fmt(net)}` : fmt(bruto));
+    return `
+      <div class="doc-item">
+        <div class="name">${tipoBadge}${esc(i.name)}${descHtml}</div>
+        <div class="qty">${i.qty} × ${esc(i.unit)}</div>
+        <div class="unit-price">${unitHtml}</div>
+        <div class="sub">${subHtml}</div>
+      </div>`;
+  }).join('');
+}
+// Encabezado de un día dentro del PDF (sólo cuando hay >1 día).
+function docDiaHeaderHtml(d, idx) {
+  let fechaTxt = '';
+  if (d.fecha) {
+    const dd = new Date(d.fecha + 'T12:00:00');
+    fechaTxt = dd.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long' });
+  }
+  const paxTxt = d.pax ? ` · ${d.pax} pax` : '';
+  const meta = (fechaTxt || paxTxt)
+    ? `<span style="font-family:'Perfectly',serif;font-style:italic;font-weight:400;color:#7a6a52;font-size:12px;text-transform:none;letter-spacing:0">${esc(fechaTxt)}${paxTxt}</span>`
+    : '';
+  return `<div class="doc-dia-head" style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:${idx === 0 ? '4px' : '20px'} 0 8px;padding-bottom:5px;border-bottom:1.5px solid #d8cdb8">
+    <span style="font-family:'Organetto',sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#2a2a2a;font-weight:600">Día ${idx + 1}</span>
+    ${meta}
+  </div>`;
+}
+
+function fmtFechaLarga(yyyymmdd) {
+  if (!yyyymmdd) return '';
+  const d = new Date(yyyymmdd + 'T12:00:00');
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+// Texto de fechas para la ficha del PDF (1 fecha, o todas las jornadas).
+function fechasResumenDoc(activeEvDate) {
+  if (dias.length <= 1) return fmtFechaLarga(activeEvDate) || '—';
+  const fechas = dias.map(d => fmtFechaLarga(d.fecha)).filter(Boolean);
+  if (!fechas.length) return `${dias.length} jornadas (fechas a confirmar)`;
+  return fechas.join(' · ') + ` · ${dias.length} jornadas`;
+}
+// Texto de pax para la ficha (mismo pax, o "50 / 30 pax" si varía).
+function paxResumenDoc(activePax) {
+  if (dias.length <= 1) return activePax ? activePax + ' pax' : '—';
+  const paxes = dias.map(d => (d.pax || '').toString().trim());
+  const nonEmpty = paxes.filter(Boolean);
+  if (!nonEmpty.length) return '—';
+  const allSame = nonEmpty.length === dias.length && nonEmpty.every(p => p === nonEmpty[0]);
+  return allSame ? nonEmpty[0] + ' pax' : paxes.map(p => p || '?').join(' / ') + ' pax';
+}
+
 function renderDoc() {
   updateBanners();
+  renderDiaTabs();
   actualizarBotonPrimario();
   togglePanelManual();
   actualizarResumenManual();
@@ -2343,19 +2606,15 @@ function renderDoc() {
   document.getElementById('d-phone').textContent = phone || '—';
   document.getElementById('d-address').textContent = address || '—';
   document.getElementById('d-type').textContent = type || '—';
-  document.getElementById('d-pax').textContent = pax ? pax + ' pax' : '—';
+  // Pax en la ficha: con multi-día, si varía mostramos "50 / 30 pax".
+  document.getElementById('d-pax').textContent = paxResumenDoc(pax);
 
   // format dates in ES-AR
   const today = new Date();
   const emit = today.toLocaleDateString('es-AR', {day:'2-digit', month:'long', year:'numeric'});
   document.getElementById('d-emit').textContent = emit;
 
-  if (evDate) {
-    const d = new Date(evDate + 'T12:00:00');
-    document.getElementById('d-event-date').textContent = d.toLocaleDateString('es-AR', {day:'2-digit', month:'long', year:'numeric'});
-  } else {
-    document.getElementById('d-event-date').textContent = '—';
-  }
+  document.getElementById('d-event-date').textContent = fechasResumenDoc(evDate);
 
   // Horario inicio / cierre
   const startTime = document.getElementById('f-event-start').value;
@@ -2426,75 +2685,30 @@ function renderDoc() {
     if (contactBlock) contactBlock.style.gridTemplateColumns = '1fr';
   }
 
-  // Items
+  // Items — con multi-jornada, una sección por día. Con 1 día, idéntico a antes.
   const dItems = document.getElementById('d-items');
   const dTotals = document.getElementById('d-totals');
-  // En modo manual: permitir ver totales aunque no haya items (empty-state reducido)
-  if (!items.length) {
-    if (t.isManual && t.total > 0) {
-      // Modo manual SIN items: mostrar aviso chico
-      dItems.innerHTML = `<div class="empty-state" style="padding:28px 20px">
-        <h3 style="margin-top:0">Presupuesto en modo manual</h3>
-        <p>Agregá ítems del catálogo para detallar qué incluye (o dejalo así si no querés detallar).</p>
-      </div>`;
-      dTotals.style.display = '';
-      document.getElementById('d-count').textContent = 'manual';
-    } else {
-      dItems.innerHTML = `<div class="empty-state">
+  const totalItems = totalItemsCount();
+  const multiDia = dias.length > 1;
+  if (!totalItems && !(t.isManual && t.total > 0)) {
+    dItems.innerHTML = `<div class="empty-state">
       <h3>Tu presupuesto aparece acá</h3>
       <p>Empezá agregando ítems desde el buscador de la izquierda.</p>
     </div>`;
-      dTotals.style.display = 'none';
-      document.getElementById('d-count').textContent = '';
-      return;
-    }
+    dTotals.style.display = 'none';
+    document.getElementById('d-count').textContent = '';
+    return;
   }
   dTotals.style.display = '';
-  document.getElementById('d-count').textContent = `${items.length} ítem${items.length>1?'s':''}`;
-
-  // Agrupar items por tipoServicio manteniendo orden de aparición
-  const tiposOrden = ['Entrada', 'Principal', 'Postre', 'Bebidas', 'Servicio', 'Otro', 'Logística'];
-  if (t.isManual) {
-    // MODO MANUAL: los ítems son sólo descripción, sin qty/precio/subtotal
-    dItems.innerHTML = items.map(i => {
-      const tipo = i.tipoServicio || 'Otro';
-      const tipoBadge = `<span class="tipo-badge">${esc(tipo)}</span>`;
-      const descHtml = i.desc ? `<small>${esc(i.desc)}</small>` : '';
-      return `
-      <div class="doc-item" style="grid-template-columns: 1fr">
-        <div class="name">${tipoBadge}${esc(i.name)}${descHtml}</div>
-      </div>
-    `;
-    }).join('');
+  document.getElementById('d-count').textContent = !totalItems
+    ? 'manual'
+    : (multiDia
+        ? `${dias.length} días · ${totalItems} ítem${totalItems > 1 ? 's' : ''}`
+        : `${totalItems} ítem${totalItems > 1 ? 's' : ''}`);
+  if (multiDia) {
+    dItems.innerHTML = dias.map((d, idx) => docDiaHeaderHtml(d, idx) + docItemsHtml(d.items, t.isManual)).join('');
   } else {
-    // MODO AUTOMÁTICO: como siempre, con cantidad, precio unitario y subtotal
-    dItems.innerHTML = items.map(i => {
-      const tipo = i.tipoServicio || 'Otro';
-      const tipoBadge = `<span class="tipo-badge">${esc(tipo)}</span>`;
-      const descHtml = i.desc ? `<small>${esc(i.desc)}</small>` : '';
-      const dpct = +i.discPct || 0;
-      const bruto = i.price * i.qty;
-      const net = bruto * (1 - dpct / 100);
-      const isFree = bruto <= 0;
-      const unitHtml = isFree
-        ? '—'
-        : (dpct > 0
-            ? `${fmt(i.price)} <span class="disc-tag">−${dpct}%</span>`
-            : fmt(i.price));
-      const subHtml = isFree
-        ? '<span class="sub-free">Sin cargo</span>'
-        : (dpct > 0
-            ? `<s class="sub-bruto">${fmt(bruto)}</s> ${fmt(net)}`
-            : fmt(bruto));
-      return `
-      <div class="doc-item">
-        <div class="name">${tipoBadge}${esc(i.name)}${descHtml}</div>
-        <div class="qty">${i.qty} × ${esc(i.unit)}</div>
-        <div class="unit-price">${unitHtml}</div>
-        <div class="sub">${subHtml}</div>
-      </div>
-    `;
-    }).join('');
+    dItems.innerHTML = docItemsHtml(items, t.isManual);
   }
 
   // El descuento por línea ya se muestra ítem por ítem (tachado + −%),
@@ -2530,7 +2744,11 @@ function renderDoc() {
   const ppRow = document.getElementById('d-perperson-row');
   const ppVal = document.getElementById('d-perperson');
   const paxNum = parseInt(pax, 10);
-  if (ppRow && ppVal) {
+  if (ppRow && ppVal && dias.length > 1) {
+    // Multi-jornada: el p/p global es ambiguo (pax distinto por día). Lo ocultamos;
+    // el pax de cada día ya se ve en su encabezado de sección.
+    ppRow.style.display = 'none';
+  } else if (ppRow && ppVal) {
     if (t.isManual) {
       // MODO MANUAL: siempre mostrar p/p si hay total y pax (aunque no haya items)
       const jornadas = t.manualJornadas || 1;
@@ -2919,14 +3137,9 @@ function renderDocCierre() {
   const cliente = [name, company].filter(Boolean).join(' / ') || '—';
   setText('dc-cliente', cliente);
 
-  // Fecha del evento
+  // Fecha del evento (todas las jornadas en multi-día)
   const evDate = document.getElementById('f-event-date').value;
-  let fechaTxt = '—';
-  if (evDate) {
-    const d = new Date(evDate + 'T12:00:00');
-    fechaTxt = d.toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' });
-  }
-  setText('dc-fecha', fechaTxt);
+  setText('dc-fecha', fechasResumenDoc(evDate));
 
   // Horario
   const startT = document.getElementById('f-event-start').value;
@@ -2937,9 +3150,9 @@ function renderDocCierre() {
   else if (endT) horario = `Hasta ${endT} hs`;
   setText('dc-horario', horario);
 
-  // Pax
+  // Pax (por día si varía en multi-jornada)
   const pax = document.getElementById('f-pax').value.trim();
-  setText('dc-pax', pax ? `${pax} personas` : '—');
+  setText('dc-pax', dias.length > 1 ? paxResumenDoc(pax) : (pax ? `${pax} personas` : '—'));
 
   // Locación
   const address = document.getElementById('f-address').value.trim();
@@ -2965,9 +3178,11 @@ function renderDocCierre() {
       }
     }
   } else {
-    // Modo automático: una línea por ítem principal + logística agrupada
-    const principales = items.filter(i => !(i.cat || '').toLowerCase().startsWith('logística') && (i.cat || '').toLowerCase() !== 'viáticos');
-    const logistica = items.filter(i => (i.cat || '').toLowerCase().startsWith('logística') || (i.cat || '').toLowerCase() === 'viáticos');
+    // Modo automático: una línea por ítem principal + logística agrupada.
+    // En multi-jornada juntamos los ítems de todos los días.
+    const cierreItems = dias.length > 1 ? dias.reduce((a, d) => a.concat(d.items || []), []) : items;
+    const principales = cierreItems.filter(i => !(i.cat || '').toLowerCase().startsWith('logística') && (i.cat || '').toLowerCase() !== 'viáticos');
+    const logistica = cierreItems.filter(i => (i.cat || '').toLowerCase().startsWith('logística') || (i.cat || '').toLowerCase() === 'viáticos');
 
     principales.forEach(i => {
       const subtotal = i.price * i.qty;
@@ -3082,12 +3297,8 @@ function registerInSheet() {
     fechaEventoFmt = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
   }
 
-  // Detalle: incluye tipo, cantidad, nombre y detalle si hay
-  const detalle = items.map(i => {
-    const tipo = i.tipoServicio ? `[${i.tipoServicio}] ` : '';
-    const extra = i.desc ? ` (${i.desc})` : '';
-    return `${tipo}${i.qty}x ${i.name}${extra}`;
-  }).join(' · ');
+  // Detalle: incluye tipo, cantidad, nombre y detalle si hay (todos los días).
+  const detalle = exportDetalleText();
   const ivaLabel = ivaMode ? 'c/IVA' : 's/IVA';
   const catalogMode = document.getElementById('f-catalog-mode').value.trim();
   const catalogLabels = {
@@ -3149,16 +3360,11 @@ function registerInSheet() {
 
   // Solo mandamos detalle e itemsJson si hay items cargados o si es envío de catálogo.
   // Si están vacíos y la fila ya existía, omitirlos preserva el detalle que ya estaba en el Sheet.
-  if (items.length > 0 || catalogMode) {
+  if (totalItemsCount() > 0 || catalogMode) {
     payload.detalle = detalleFinal;
   }
-  if (items.length > 0) {
-    payload.itemsJson = JSON.stringify(items.map(i => ({
-      cat: i.cat, name: i.name, price: i.price, qty: i.qty,
-      unit: i.unit, desc: i.desc, custom: !!i.custom,
-      discPct: +i.discPct || 0,
-      tipoServicio: i.tipoServicio
-    })));
+  if (totalItemsCount() > 0) {
+    payload.itemsJson = exportItemsJson();
   }
 
   // El Web App del bound es público y emite Access-Control-Allow-Origin: *,
@@ -3231,6 +3437,10 @@ function resetAll() {
   _leadIdSeguimiento = '';
   const flb = document.getElementById('ficha-lead-banner');
   if (flb) flb.style.display = 'none';
+  // Volvemos a un único día (descarta jornadas de un presupuesto anterior).
+  _sv('f-event-start', ''); _sv('f-event-end', '');
+  _sv('f-manual-monto', ''); _sv('f-manual-jornadas', '1');
+  initDiasFromLive();
   renderItems(); refreshTotals();
 }
 
@@ -3558,6 +3768,8 @@ function cargarPrevio(item) {
     items = [];
   }
 
+  // Un previo se carga como evento de 1 día (los previos no guardan jornadas).
+  initDiasFromLive();
   cerrarModalPrevios();
   renderItems();
   refreshTotals();
@@ -3793,24 +4005,17 @@ async function actualizarLeadConMonto() {
 
   const t = calc();
   const monto = Math.round(t.total);
-  const detalle = items.map(i => {
-    const tipo = i.tipoServicio ? `[${i.tipoServicio}] ` : '';
-    const extra = i.desc ? ` (${i.desc})` : '';
-    return `${tipo}${i.qty}x ${i.name}${extra}`;
-  }).join(' · ');
+  const detalle = exportDetalleText();
   const ivaLabel = ivaMode ? 'c/IVA' : 's/IVA';
   const observaciones = `TOTAL ${ivaLabel}: $${monto.toLocaleString('es-AR')}${t.discount>0?' · Descuento: $'+Math.round(t.discount).toLocaleString('es-AR'):''}`;
-  const itemsJson = JSON.stringify(items.map(i => ({
-    cat: i.cat, name: i.name, price: i.price, qty: i.qty,
-    unit: i.unit, desc: i.desc, custom: !!i.custom, discPct: +i.discPct || 0, tipoServicio: i.tipoServicio
-  })));
+  const itemsJson = exportItemsJson();
 
   // Sin presupuestoId interno → el bound matchea por idPresupuesto (P-2026) y
   // solo actualiza monto/items/detalle, sin pisar estado/vendedor del Agendador.
   // Si no hay items cargados, omitimos detalle e itemsJson para no pisar lo que
   // ya estaba guardado en la fila (caso "abrí un previo y exporté sin completar").
   const payload = { idPresupuesto: idPres, monto, observaciones };
-  if (items.length > 0) {
+  if (totalItemsCount() > 0) {
     payload.detalle = detalle;
     payload.itemsJson = itemsJson;
   }
@@ -3839,6 +4044,7 @@ async function actualizarLeadConMonto() {
 }
 
 // Initial render
+initDiasFromLive();   // arranca con 1 día capturando el estado inicial (vacío)
 renderDoc();
 refreshTotals();
 // El cartel "ya guardado" solo tiene sentido si hay un presupuesto en pantalla.
@@ -4722,11 +4928,30 @@ function abrirAgendadorConfirmado(scope) {
   // Excluimos Logística (viáticos/flete) y Servicio (staffing): son ruido para
   // el menú que lee cocina/operaciones. Si no hay ítems (modo lead sin armar
   // presupuesto), no se manda nada.
-  const menuItems = items.filter(i => i.tipoServicio !== 'Logística' && i.tipoServicio !== 'Servicio');
-  const menuDetalle = menuItems.map(i => {
-    const extra = i.desc ? ` (${i.desc})` : '';
-    return `${i.qty}x ${i.name}${extra}`;
-  }).join(' · ');
+  let menuDetalle;
+  if (scope === 'gate' && dias.length > 1) {
+    // Multi-jornada: menú de cada día con su encabezado + las fechas individuales,
+    // para que el Agendador pueda armar un evento por jornada.
+    syncActiveDiaFromLive();
+    menuDetalle = dias.map((d, idx) => {
+      const fc = d.fecha ? ` ${fechaCortaTab(d.fecha)}` : '';
+      const its = (d.items || [])
+        .filter(i => i.tipoServicio !== 'Logística' && i.tipoServicio !== 'Servicio')
+        .map(i => `${i.qty}x ${i.name}${i.desc ? ` (${i.desc})` : ''}`).join(' · ');
+      return `DÍA ${idx + 1}${fc}: ${its}`;
+    }).join('  ||  ');
+    const fechasInd = dias.map(d => d.fecha).filter(Boolean);
+    if (fechasInd.length) {
+      params.set('fechasIndividuales', fechasInd.join(','));
+      params.set('fecha', fechasInd[0]); // fecha primaria = primer día
+    }
+  } else {
+    const menuItems = items.filter(i => i.tipoServicio !== 'Logística' && i.tipoServicio !== 'Servicio');
+    menuDetalle = menuItems.map(i => {
+      const extra = i.desc ? ` (${i.desc})` : '';
+      return `${i.qty}x ${i.name}${extra}`;
+    }).join(' · ');
+  }
   if (menuDetalle) params.set('menuDetalle', menuDetalle);
 
   // Handoff de identidad del lead — para que el Agendador haga update en el

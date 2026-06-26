@@ -998,7 +998,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
         <div class="doc-client">
           <div class="cli-field"><label>Contacto</label><span id="d-name">—</span></div>
-          <div class="cli-field"><label>Empresa</label><span id="d-company">—</span></div>
+          <div class="cli-field" id="d-company-field"><label>Empresa</label><span id="d-company">—</span></div>
           <div class="cli-field"><label>Vendedor a cargo</label><span id="d-vendor">—</span></div>
           <div class="cli-field"><label>Teléfono</label><span id="d-phone">—</span></div>
           <div class="cli-field"><label>Tipo de evento</label><span id="d-type">—</span></div>
@@ -2586,6 +2586,9 @@ function renderDoc() {
   const t = calc();
   const name = document.getElementById('f-name').value.trim();
   const company = document.getElementById('f-company').value.trim();
+  // Particular = campo vacío o literalmente "Particular": no es una empresa real,
+  // así que la ficha del cliente no muestra la fila Empresa ni el título la usa.
+  const companyReal = /^particular(es)?$/i.test(company) ? '' : company;
   const phone = document.getElementById('f-phone').value.trim();
   const email = document.getElementById('f-email').value.trim();
   const address = document.getElementById('f-address').value.trim();
@@ -2601,7 +2604,9 @@ function renderDoc() {
     ? vendorContacts[vendor].name
     : vendor;
   document.getElementById('d-name').textContent = name || '—';
-  document.getElementById('d-company').textContent = company || '—';
+  document.getElementById('d-company').textContent = companyReal || '—';
+  const dCompanyField = document.getElementById('d-company-field');
+  if (dCompanyField) dCompanyField.style.display = companyReal ? '' : 'none';
   document.getElementById('d-vendor').textContent = vendorFormalName || '—';
   document.getElementById('d-phone').textContent = phone || '—';
   document.getElementById('d-address').textContent = address || '—';
@@ -2635,7 +2640,7 @@ function renderDoc() {
   // Title - usa empresa > nombre del evento > contacto
   const titleEl = document.getElementById('d-title');
   const catalogMode = document.getElementById('f-catalog-mode').value.trim();
-  const titleTarget = company || name;
+  const titleTarget = companyReal || name;
   // Si es envío de catálogo, el título cambia a "Propuesta de Servicios"
   if (catalogMode) {
     if (titleTarget) {
@@ -5433,6 +5438,173 @@ async function gateCrearPosible() {
     alert('No se pudo crear el evento POSIBLE: ' + err.message);
   }
 }
+
+// ============================================================
+// AUTOCOMPLETADO — base compartida (Sheet de Seguimiento).
+//  · Empresa (f-company): maestro "Empresas" (nombres limpios → un Danone,
+//    no 70). Al elegir, ofrece sus CONTACTOS con mail para completar
+//    Contacto+Mail, y carga sus DIRECCIONES vistas en un desplegable.
+//  · Contacto (f-name): busca personas ya cargadas (base Clientes).
+// Cache local por endpoint (TTL 5'), búsqueda instantánea. Best-effort:
+// si el script falla, el form anda igual.
+// ============================================================
+(function () {
+  const TTL = 5 * 60 * 1000;
+  function makeLoader(action) {
+    let cache = null, at = 0, inflight = null;
+    return function () {
+      if (cache && Date.now() - at < TTL) return Promise.resolve(cache);
+      if (inflight) return inflight;
+      inflight = fetch(APPS_SCRIPT_URL, {
+        method: 'POST', mode: 'cors', redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: action })
+      })
+        .then(r => r.json())
+        .then(j => { cache = (j && j.items) || []; at = Date.now(); return cache; })
+        .catch(() => cache || [])
+        .finally(() => { inflight = null; });
+      return inflight;
+    };
+  }
+  const loadEmpresas = makeLoader('dumpEmpresas');
+  const loadClientes = makeLoader('dumpClientes');
+
+  const norm = s => (s == null ? '' : String(s)).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // --- UI compartida: un dropdown flotante + datalist de direcciones ---
+  const box = document.createElement('div');
+  box.id = 'lf-cli-ac';
+  box.style.cssText = 'position:fixed;z-index:9999;display:none;background:#0a0a0a;border:1px solid var(--border,#333);border-radius:6px;max-height:300px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.5);font-family:inherit;min-width:240px';
+  document.body.appendChild(box);
+  let dirList = document.getElementById('lf-dir-list');
+  if (!dirList) { dirList = document.createElement('datalist'); dirList.id = 'lf-dir-list'; document.body.appendChild(dirList); }
+  const addr = document.getElementById('f-address');
+  if (addr) addr.setAttribute('list', 'lf-dir-list');
+
+  let anchor = null, rows = [], hi = -1, onPick = null;
+
+  function hide() { box.style.display = 'none'; hi = -1; rows = []; onPick = null; }
+  function place(input) {
+    const r = input.getBoundingClientRect();
+    box.style.left = r.left + 'px'; box.style.top = (r.bottom + 4) + 'px'; box.style.width = Math.max(r.width, 240) + 'px';
+  }
+  function paint() { Array.from(box.children).forEach((el, i) => { el.style.background = (i === hi) ? 'rgba(255,255,255,.08)' : ''; }); }
+  function choose(i) { const r = rows[i], fn = onPick; hide(); if (r && fn) fn(r.data); }
+  // items: [{primary, secondary, meta, data}]
+  function open(input, items, pickFn) {
+    anchor = input; rows = items || []; hi = -1; onPick = pickFn;
+    if (!rows.length) { hide(); return; }
+    box.innerHTML = '';
+    rows.forEach((r, i) => {
+      const el = document.createElement('div');
+      el.style.cssText = 'padding:7px 11px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.05)';
+      el.innerHTML =
+        '<div style="font-size:12px;font-weight:600;color:var(--fg,#eee)">' + esc(r.primary) +
+        (r.secondary ? ' <span style="font-weight:400;color:var(--fg-dim,#888)">· ' + esc(r.secondary) + '</span>' : '') + '</div>' +
+        (r.meta ? '<div style="font-size:10px;color:var(--fg-dim,#888);margin-top:1px">' + esc(r.meta) + '</div>' : '');
+      el.addEventListener('mousedown', e => { e.preventDefault(); choose(i); });
+      el.addEventListener('mouseenter', () => { hi = i; paint(); });
+      box.appendChild(el);
+    });
+    place(input); paint(); box.style.display = 'block';
+  }
+
+  function setVal(id, v, force) { const el = document.getElementById(id); if (el && v && (force || !el.value.trim())) el.value = v; }
+  function setDirecciones(dirs) {
+    dirList.innerHTML = '';
+    (dirs || []).filter(Boolean).forEach(d => { const o = document.createElement('option'); o.value = d; dirList.appendChild(o); });
+    if (addr && dirs && dirs.length && !addr.value.trim()) addr.value = dirs[0];
+  }
+
+  // ---- Empresa (f-company): maestro de empresas limpio ----
+  function searchEmpresas(q) {
+    const qk = norm(q); if (qk.length < 1) return Promise.resolve([]);
+    return loadEmpresas().then(items => {
+      const out = [];
+      for (const r of items) {
+        const ek = norm(r.e); let s = -1;
+        if (ek.startsWith(qk)) s = 0; else if (ek.includes(qk)) s = 1;
+        if (s < 0) continue;
+        out.push({ s, r });
+      }
+      out.sort((a, b) => a.s - b.s || String(a.r.e).localeCompare(String(b.r.e)));
+      return out.slice(0, 10).map(x => ({
+        primary: x.r.e, secondary: '',
+        meta: [(x.r.cs && x.r.cs.length ? x.r.cs.length + ' contactos' : ''), (x.r.d && x.r.d.length ? x.r.d.length + ' direcc.' : ''), x.r.tp].filter(Boolean).join('  ·  '),
+        data: x.r
+      }));
+    });
+  }
+  function pickEmpresa(emp) {
+    setVal('f-company', emp.e, true);
+    if (emp.v) setVal('f-vendor', emp.v, false);
+    setDirecciones(emp.d);
+    // Si tiene contactos conocidos, abrir picker bajo Contacto para elegir uno.
+    const cs = Array.isArray(emp.cs) ? emp.cs.filter(c => c.n || c.m) : [];
+    const nameEl = document.getElementById('f-name');
+    if (cs.length && nameEl) {
+      const items = cs.map(c => ({ primary: c.n || c.m, secondary: '', meta: [c.m, c.t].filter(Boolean).join('  ·  '), data: c }));
+      nameEl.focus();
+      open(nameEl, items, pickContacto);
+    }
+  }
+  function pickContacto(c) { setVal('f-name', c.n, true); setVal('f-email', c.m, true); setVal('f-phone', c.t, false); }
+
+  // ---- Contacto (f-name): personas de la base Clientes ----
+  function searchClientes(q) {
+    const qk = norm(q); if (qk.length < 2) return Promise.resolve([]);
+    return loadClientes().then(items => {
+      const out = [];
+      for (const r of items) {
+        const nk = norm(r.n), ck = norm(r.c); let s = -1;
+        if (nk.startsWith(qk)) s = 0; else if (nk.includes(qk)) s = 1; else if (ck && ck.includes(qk)) s = 2;
+        if (s < 0) continue;
+        out.push({ s, ev: r.ev || 0, r });
+      }
+      out.sort((a, b) => a.s - b.s || b.ev - a.ev);
+      return out.slice(0, 8).map(x => ({
+        primary: x.r.n || '—', secondary: x.r.e || '',
+        meta: [x.r.t, x.r.tp, x.r.ev ? x.r.ev + ' ev' : ''].filter(Boolean).join('  ·  '),
+        data: x.r
+      }));
+    });
+  }
+  function pickCliente(r) {
+    setVal('f-name', r.n, true);
+    if (r.e) setVal('f-company', r.e, false);
+    setVal('f-phone', r.t, false);
+    setVal('f-email', r.m, false);
+    if (Array.isArray(r.d) && r.d.length) setDirecciones(r.d);
+  }
+
+  // ---- Wiring ----
+  function wire(id, searchFn, pickFn, preload) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute('autocomplete', 'off');
+    const run = () => searchFn(el.value).then(items => { if (document.activeElement === el) open(el, items, pickFn); });
+    el.addEventListener('input', run);
+    el.addEventListener('focus', () => { if (el.value.trim().length >= 1) run(); else preload(); });
+    el.addEventListener('keydown', e => {
+      if (box.style.display === 'none') return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); hi = Math.min(hi + 1, rows.length - 1); paint(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(hi - 1, 0); paint(); }
+      else if (e.key === 'Enter') { if (hi >= 0) { e.preventDefault(); choose(hi); } }
+      else if (e.key === 'Escape') { hide(); }
+    });
+    el.addEventListener('blur', () => setTimeout(() => {
+      const a = document.activeElement;
+      if (a && (a.id === 'f-name' || a.id === 'f-company')) return; // saltó al otro campo
+      hide();
+    }, 200));
+  }
+  wire('f-company', searchEmpresas, pickEmpresa, loadEmpresas);
+  wire('f-name', searchClientes, pickCliente, loadClientes);
+  window.addEventListener('scroll', () => { if (box.style.display !== 'none' && anchor) place(anchor); }, true);
+})();
 </script>
 </body>
 </html>

@@ -1,0 +1,6 @@
+fix(cotizador): permitir Continuar y exportar sin elegir nada en el gate de Calendar
+
+Si no se selecciona ninguna opción del gate, el presupuesto se exporta
+sin link a Calendar (equivale a 'Ninguno') en vez de bloquear el botón.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>

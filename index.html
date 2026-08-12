@@ -160,6 +160,26 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .suggest .opt .price{color:var(--fg-dim);font-size:12px;white-space:nowrap}
 .suggest .opt .unit{font-size:10px;color:var(--fg-dim);text-transform:lowercase;display:block;margin-top:2px}
 
+/* === AVISO AL CAMBIAR PAX === */
+.pax-aviso{
+  margin-top:12px;padding:10px 12px;border-radius:4px;
+  border:1px solid var(--border);background:#0a0a0a;
+  font-size:12px;line-height:1.5;color:var(--fg-dim);
+}
+.pax-aviso.ok{border-color:var(--success);background:rgba(139,184,139,0.07)}
+.pax-aviso.warn{border-color:var(--danger);background:rgba(224,96,58,0.07)}
+.pax-aviso strong{color:var(--fg);font-weight:600}
+.pax-aviso ul{margin:5px 0 0 16px}
+.pax-aviso li{margin-top:2px}
+.pax-aviso .pax-acciones{display:flex;gap:6px;margin-top:9px}
+.pax-aviso button{
+  font-size:11px;padding:5px 10px;border-radius:3px;
+  border:1px solid var(--border);background:transparent;color:var(--fg-dim);
+  letter-spacing:0.03em;transition:all .15s;
+}
+.pax-aviso button:hover{border-color:var(--fg);color:var(--fg)}
+.pax-aviso button.primary{border-color:var(--danger);color:var(--fg)}
+
 /* === ADDED ITEMS === */
 .items{margin-top:12px}
 .item{display:grid;grid-template-columns:20px 1fr 60px 32px;gap:8px;align-items:flex-start;padding:10px;background:#0a0a0a;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;transition:all .15s;position:relative}
@@ -920,6 +940,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
           <input id="f-search" placeholder="Buscá en el catálogo" autocomplete="off">
           <div id="suggest" class="suggest"></div>
         </div>
+        <!-- Aviso al cambiar la cantidad de personas (ver syncPaxItems) -->
+        <div id="pax-aviso" class="pax-aviso" style="display:none"></div>
         <div id="items-list" class="items"></div>
         <button class="add-custom" onclick="addCustomItem()">+ Agregar ítem personalizado</button>
         <button class="add-custom" onclick="openStaffingGuide()" style="margin-top:6px;font-size:11px">📋 Ver guía de staffing y viáticos</button>
@@ -1918,6 +1940,8 @@ function loadDiaToLive(i) {
   const d = dias[i]; if (!d) return;
   activeDia = i;
   items = d.items || (d.items = []);
+  // El aviso de pax es del día que estabas editando: no lo arrastres al otro.
+  if (typeof ocultarAvisoPax === 'function') ocultarAvisoPax();
   _sv('f-event-date', d.fecha);
   _sv('f-pax', d.pax);
   _sv('f-event-start', d.start);
@@ -2115,7 +2139,10 @@ searchInput.addEventListener('input', () => {
         unit: o.dataset.u,
         desc: o.dataset.d,
         cat: cat,
-        qty: (isLogistica || isPromoCaja) ? 1 : pax
+        qty: (isLogistica || isPromoCaja) ? 1 : pax,
+        // qtyAuto = la cantidad salió del pax, así que sigue al pax mientras
+        // nadie la edite a mano. Logística/viáticos/cajas de promo van fijas.
+        qtyAuto: !(isLogistica || isPromoCaja)
       });
       searchInput.value = '';
       suggest.classList.remove('open');
@@ -2209,6 +2236,8 @@ function updateItem(id, field, val) {
   if (!it) return;
   if (field === 'qty' || field === 'price' || field === 'discPct') val = +val || 0;
   if (field === 'discPct') val = Math.max(0, Math.min(100, val)); // % de 0 a 100
+  // Si el comercial toca la cantidad a mano, deja de seguir al pax.
+  if (field === 'qty') it.qtyAuto = false;
   it[field] = val;
   renderDoc();
   // qty/price/discPct: refrescamos el subtotal de la línea sin re-render (preserva foco)
@@ -2498,6 +2527,7 @@ function exportItemsJson() {
       const o = {
         cat: i.cat, name: i.name, price: i.price, qty: i.qty,
         unit: i.unit, desc: i.desc, custom: !!i.custom,
+        qtyAuto: !!i.qtyAuto,
         discPct: +i.discPct || 0, tipoServicio: i.tipoServicio
       };
       if (multi) { o.dia = idx + 1; o.diaFecha = d.fecha || ''; }
@@ -2809,6 +2839,84 @@ function renderDoc() {
     document.getElementById('d-disc-label').textContent = reason ? `${baseLbl} · ${reason}` : baseLbl;
     document.getElementById('d-disc').textContent = '-' + fmt(t.discount);
   } else dDiscRow.style.display = 'none';
+}
+
+// === SINCRONIZAR CANTIDADES CON EL PAX ===
+// Los ítems cuya cantidad salió del pax (qtyAuto) lo siguen solos. Los que el
+// comercial editó a mano NO se pisan: se avisa y se le da el botón para forzar.
+let paxAvisoTimer = null;
+
+function itemsQtyManual(nuevoPax) {
+  // Ítems editados a mano que quedaron con una cantidad distinta del pax nuevo.
+  // Logística/viáticos/cajas de promo van fijas por diseño, no entran acá.
+  return items.filter(i => {
+    const cat = i.cat || '';
+    const fijo = cat.startsWith('Logística') || cat === 'Viáticos'
+      || cat.startsWith('Día del Padre 2026') || cat.startsWith('Promo · Adicionales');
+    return !i.qtyAuto && !fijo && !i.custom && i.qty !== nuevoPax;
+  });
+}
+
+function ocultarAvisoPax() {
+  const el = document.getElementById('pax-aviso');
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+}
+
+// Fuerza el pax en los ítems que estaban editados a mano.
+function forzarPaxItems() {
+  const nuevoPax = +(document.getElementById('f-pax').value || 0);
+  if (!(nuevoPax > 0)) return;
+  itemsQtyManual(nuevoPax).forEach(i => { i.qty = nuevoPax; i.qtyAuto = true; });
+  renderItems(); refreshTotals(); renderDoc();
+  ocultarAvisoPax();
+}
+
+function syncPaxItems() {
+  const el = document.getElementById('pax-aviso');
+  const nuevoPax = +(document.getElementById('f-pax').value || 0);
+  if (!el) return;
+  if (!(nuevoPax > 0) || !items.length) { ocultarAvisoPax(); return; }
+
+  // 1) Los automáticos siguen al pax sin preguntar
+  const autos = items.filter(i => i.qtyAuto && i.qty !== nuevoPax);
+  autos.forEach(i => { i.qty = nuevoPax; });
+  if (autos.length) { renderItems(); refreshTotals(); renderDoc(); }
+
+  // 2) Los editados a mano se avisan, no se tocan
+  const manuales = itemsQtyManual(nuevoPax);
+  if (!autos.length && !manuales.length) { ocultarAvisoPax(); return; }
+
+  const plural = n => n === 1 ? '' : 's';
+  let html = '';
+  if (autos.length) {
+    html += `<strong>${autos.length} ítem${plural(autos.length)}</strong> ${autos.length === 1 ? 'pasó' : 'pasaron'} a ${nuevoPax} pax.`;
+  }
+  if (manuales.length) {
+    html += `${autos.length ? '<br>' : ''}<strong>${manuales.length} con cantidad editada a mano</strong> — no lo${plural(manuales.length)} toqué:`;
+    html += `<ul>${manuales.map(i => `<li>${esc(i.name)} · ${i.qty} ${i.unit === 'persona' ? 'pax' : i.unit}</li>`).join('')}</ul>`;
+    html += `<div class="pax-acciones">
+      <button class="primary" onclick="forzarPaxItems()">Pasarlos a ${nuevoPax} también</button>
+      <button onclick="ocultarAvisoPax()">Dejarlos así</button>
+    </div>`;
+  }
+
+  el.className = 'pax-aviso ' + (manuales.length ? 'warn' : 'ok');
+  el.innerHTML = html;
+  el.style.display = '';
+
+  // El aviso "todo ok" se va solo; el que pide decisión se queda.
+  clearTimeout(paxAvisoTimer);
+  if (!manuales.length) paxAvisoTimer = setTimeout(ocultarAvisoPax, 4000);
+}
+
+// Debounce: el input dispara por cada tecla ("4" antes que "45").
+let paxSyncTimer = null;
+const paxEl_ = document.getElementById('f-pax');
+if (paxEl_) {
+  ['input', 'change'].forEach(ev => paxEl_.addEventListener(ev, () => {
+    clearTimeout(paxSyncTimer);
+    paxSyncTimer = setTimeout(syncPaxItems, 450);
+  }));
 }
 
 // live update on any form input
@@ -3469,6 +3577,7 @@ function showSheetToast(msg, isError) {
 function resetAll() {
   if (!confirm('¿Borrar todos los datos y empezar de cero?\n\nEsto crea un presupuesto nuevo (no actualiza el anterior).')) return;
   items = []; discountValue = 0;
+  ocultarAvisoPax();
   ['f-name','f-company','f-phone','f-email','f-event-name','f-address','f-event-date','f-type','f-pax','f-discount','f-disc-reason','f-vendor','f-channel','f-catalog-mode'].forEach(id => {
     document.getElementById(id).value = '';
   });
@@ -3805,7 +3914,14 @@ function cargarPrevio(item) {
   // Restaurar items si vinieron como JSON. Si el viejo no tiene detalle
   // guardado, arrancamos con la lista vacía (cabecera cargada, detalle a mano).
   if (item.items && Array.isArray(item.items)) {
-    items = item.items.map(i => ({ ...i, id: Date.now() + Math.random() }));
+    // Previos viejos no guardan qtyAuto: lo inferimos. Si la cantidad coincide
+    // con el pax del presupuesto, es que salió del pax y puede seguir al pax.
+    const paxPrevio = +(item.pax || 0);
+    items = item.items.map(i => ({
+      ...i,
+      qtyAuto: i.qtyAuto !== undefined ? !!i.qtyAuto : (paxPrevio > 0 && +i.qty === paxPrevio),
+      id: Date.now() + Math.random()
+    }));
   } else if (!tieneInternal) {
     items = [];
   }

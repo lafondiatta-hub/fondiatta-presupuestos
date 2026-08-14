@@ -5430,6 +5430,61 @@ function mapTipoCotizadorParaAgendador(tipo) {
 // Junta los datos del presupuesto y abre el Agendador en una nueva pestaña con
 // prefill por querystring. `scope` = 'pf' (modal Cargar lead) | 'gate' (modal
 // pre-export del presupuesto armado).
+// ==================================================================
+// Clasificación del menú para el Agendador
+// ==================================================================
+// El Agendador tiene un campo por momento gastronómico (desayuno, entrada,
+// principal, postre, bebidas…) + los chips de "tipos de menú". Hasta ahora le
+// mandábamos TODOS los ítems juntos en menuDetalle y había que repartirlos a
+// mano. Acá los separamos usando la categoría del catálogo, que es un dato que
+// ya tenemos y que se perdía al serializar.
+//
+// Se hace por categoría y no con `tipoServicio` a propósito: esa taxonomía es
+// para el PDF y el Sheet, y manda "Corpo · Almuerzos c/Servicio" a 'Servicio'
+// (por la palabra "servicio"), que el handoff filtraba — o sea que un almuerzo
+// corporativo nunca llegaba al Agendador.
+//
+// [regex sobre la categoría, campo del Agendador, chip de tipoMenu]
+// El orden manda: vinos antes que barra, barra antes que bebidas.
+const MENU_AGENDADOR_MAP = [
+  [/^logística|^viáticos|^servicios/i,                              null,                null],
+  [/^corpo · desayunos/i,                                           'menuDesayuno',      'Desayuno'],
+  [/^corpo · (almuerzos|viandas|ensaladas|wraps|sandwiches|tartas)/i,'menuAlmuerzo',     'Almuerzo Ejecutivo'],
+  [/^corpo · (bruschettas|empanadas)/i,                             'menuEntrada',       'Entrada / Finger Food'],
+  [/^eventos · (finger|picadas)/i,                                  'menuEntrada',       'Entrada / Finger Food'],
+  [/^eventos · (principales|asados)/i,                              'menuPrincipal',     'Principal'],
+  [/^fondiaburger/i,                                                'menuPrincipal',     'Principal'],
+  [/vinos|descorche/i,                                              'menuBebidasExtras', 'Vinos / Descorche'],
+  [/barra/i,                                                        'menuDetalle',       'Barra'],
+  [/^bebidas/i,                                                     'menuBebidas',       'Bebida sin alcohol'],
+  [/postres/i,                                                      'menuPostre',        'Postre']
+];
+
+function clasificarMenuParaAgendador(lista) {
+  const campos = {
+    menuDesayuno: [], menuAlmuerzo: [], menuEntrada: [], menuPrincipal: [],
+    menuPostre: [], menuBebidas: [], menuBebidasExtras: [], menuDetalle: []
+  };
+  const tiposMenu = [];
+
+  (lista || []).forEach(it => {
+    const cat = it.cat || '';
+    const regla = MENU_AGENDADOR_MAP.find(r => r[0].test(cat));
+    // Logística, viáticos y servicios (mozos, vajilla) no son menú: ruido para
+    // cocina y operaciones, que es quien lee la ficha.
+    if (regla && regla[1] === null) return;
+
+    const destino = regla ? regla[1] : 'menuDetalle';
+    const chip = regla ? regla[2] : null;
+    campos[destino].push(`${it.qty}x ${it.name}`);
+    if (chip && tiposMenu.indexOf(chip) < 0) tiposMenu.push(chip);
+  });
+
+  const out = {};
+  Object.keys(campos).forEach(k => { out[k] = campos[k].join(' · '); });
+  return { campos: out, tiposMenu };
+}
+
 function abrirAgendadorConfirmado(scope) {
   let nombre, fechaTexto, pax, contactoNombre, contactoTel, tipo, locacion, vendedor, horarioInicio, horarioFin;
 
@@ -5504,11 +5559,14 @@ function abrirAgendadorConfirmado(scope) {
       params.set('fecha', fechasInd[0]); // fecha primaria = primer día
     }
   } else {
-    const menuItems = items.filter(i => i.tipoServicio !== 'Logística' && i.tipoServicio !== 'Servicio');
-    menuDetalle = menuItems.map(i => {
-      const extra = i.desc ? ` (${i.desc})` : '';
-      return `${i.qty}x ${i.name}${extra}`;
-    }).join(' · ');
+    // Un solo día: clasificamos los ítems por momento gastronómico y los
+    // mandamos ya separados, así el Agendador no tiene que adivinar.
+    const clasificado = clasificarMenuParaAgendador(items);
+    Object.keys(clasificado.campos).forEach(k => {
+      if (clasificado.campos[k]) params.set(k, clasificado.campos[k]);
+    });
+    if (clasificado.tiposMenu.length) params.set('tiposMenu', clasificado.tiposMenu.join(','));
+    menuDetalle = clasificado.campos.menuDetalle || '';
   }
   if (menuDetalle) params.set('menuDetalle', menuDetalle);
 

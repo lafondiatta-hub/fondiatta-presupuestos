@@ -105,6 +105,17 @@ input,select,textarea{font-family:inherit;font-size:14px}
   background:rgba(244,239,230,0.09);
   border-color:var(--fg);
 }
+.sidebar header .btn-traer{
+  grid-column:1 / -1;
+  background:#1a2a44;
+  color:#a8c6e8;
+  border:1px solid #2a3a54;
+}
+.sidebar header .btn-traer:hover{
+  background:#243657;
+  border-color:#4a6a94;
+  color:#c8e0f8;
+}
 .ficha-lead-banner{
   border:1px solid var(--fg-dim);
   border-radius:6px;
@@ -692,6 +703,51 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .pdf-actions .pa-skip{background:transparent;color:#e8c878;border-color:#7a6a3a}
 .pdf-actions .pa-skip:hover{background:#2a2412;border-color:#d4a449}
 .pdf-actions button:disabled{opacity:.4;cursor:not-allowed}
+
+/* === TRAER INFO: screenshot/texto → presupuesto (no toca el Sheet) === */
+.ti-tabs{display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:14px;background:#0a0a0a}
+.ti-tab{flex:1;background:transparent;border:none;color:var(--fg-dim);padding:11px 8px;font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;cursor:pointer;transition:all .15s ease;border-right:1px solid var(--border)}
+.ti-tab:last-child{border-right:none}
+.ti-tab:hover{color:var(--fg);background:#141414}
+.ti-tab.active{background:var(--fg);color:var(--bg);font-weight:700}
+.ti-panel{display:none}
+.ti-panel.active{display:block}
+.ti-panel textarea{width:100%;padding:10px 12px;background:#0a0a0a;border:1px solid var(--border);color:var(--fg);border-radius:4px;font-family:'NeueHaas',sans-serif;font-size:12px;outline:none;resize:vertical}
+.ti-panel textarea:focus{border-color:var(--fg-dim)}
+.ti-text-submit{margin-top:10px;width:100%;padding:11px;border-radius:4px;background:var(--fg);color:var(--bg);border:1px solid var(--fg);font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;cursor:pointer}
+.ti-text-submit:hover{opacity:.85}
+.ti-review{display:none;margin-top:18px;padding-top:18px;border-top:1px solid var(--border)}
+.ti-review.open{display:block}
+.ti-sec{font-family:'Organetto',sans-serif;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--fg-dim);font-weight:700;margin:16px 0 8px}
+.ti-sec:first-child{margin-top:0}
+.ti-hint{font-family:'NeueHaas',sans-serif;font-size:11.5px;color:var(--fg-dim);line-height:1.5;margin-bottom:10px}
+.ti-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+.ti-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:#0a0a0a;transition:border-color .15s,opacity .15s}
+.ti-row.full{grid-column:1/-1}
+.ti-row.off{opacity:.4}
+.ti-row.on{border-color:#3a5a7a}
+.ti-row input[type=checkbox]{accent-color:#6b9bd1;cursor:pointer;flex:0 0 auto;width:15px;height:15px}
+.ti-row .ti-lab{font-family:'Organetto',sans-serif;font-size:8.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--fg-dim);flex:0 0 88px;line-height:1.3}
+.ti-row .ti-val{flex:1;min-width:0;padding:5px 8px;background:#141414;border:1px solid var(--border);color:var(--fg);border-radius:3px;font-family:'NeueHaas',sans-serif;font-size:12px;outline:none}
+.ti-row .ti-val:focus{border-color:var(--fg-dim)}
+.ti-row .ti-val:disabled{opacity:.55;cursor:not-allowed}
+/* padding-top corta el colapso de márgenes del .ti-sec de adentro */
+#ti-items-wrap,#ti-notas-wrap{padding-top:1px}
+.ti-items{display:flex;flex-direction:column;gap:6px}
+.ti-item{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--border);border-radius:4px;background:#0a0a0a;transition:border-color .15s,opacity .15s}
+.ti-item.on{border-color:#3a5a7a;background:#101820}
+.ti-item.off{opacity:.42}
+.ti-item input[type=checkbox]{accent-color:#6b9bd1;cursor:pointer;flex:0 0 auto;width:15px;height:15px}
+.ti-item-body{flex:1;min-width:0}
+.ti-item-name{font-family:'NeueHaas',sans-serif;font-size:12.5px;color:var(--fg);font-weight:600}
+.ti-item-meta{font-family:'NeueHaas',sans-serif;font-size:10.5px;color:var(--fg-dim);margin-top:2px;line-height:1.4}
+.ti-item-qty{flex:0 0 62px;padding:5px 7px;background:#141414;border:1px solid var(--border);color:var(--fg);border-radius:3px;font-size:12px;font-family:'NeueHaas',sans-serif;outline:none;text-align:center}
+.ti-notas{padding:11px 14px;border-left:3px solid #6b9bd1;background:#101820;border-radius:3px;font-family:'NeueHaas',sans-serif;font-size:12px;color:#f4efe6;line-height:1.6}
+.ti-notas ul{margin:0;padding-left:16px}
+.ti-notas li{margin:3px 0}
+.ti-warn{padding:11px 14px;border-left:3px solid #d4a449;background:#2a2412;border-radius:3px;font-family:'NeueHaas',sans-serif;font-size:12px;color:#f4efe6;line-height:1.55}
+.ti-warn strong{color:#f0c878}
+.ti-nosheet{font-family:'NeueHaas',sans-serif;font-size:12px;color:#a8d8a8;background:#142a14;border-left:3px solid #4a9b4a;border-radius:3px;padding:10px 13px;margin-bottom:16px;line-height:1.45}
 </style>
 </head>
 <body>
@@ -710,6 +766,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
         <button class="btn-load-previo" onclick="abrirModalPrevios()" title="Buscá un presupuesto anterior y cargalo para editarlo">📂 Cargar previo</button>
         <button class="btn-load-previo" onclick="abrirModalPdf()" title="Cargá un lead (PDF, imagen o texto) y lo registramos automáticamente en el Sheet de seguimiento">📥 Cargar lead</button>
         <button class="btn-load-previo btn-ficha" onclick="abrirModalFicha()" title="Pegá la ficha del Agendador y solo llena los datos del presupuesto — NO toca el Sheet (el lead ya está registrado)">📋 Pegar ficha del Agendador</button>
+        <button class="btn-load-previo btn-traer" onclick="abrirModalInfo()" title="Pegá un screenshot de WhatsApp/mail o el texto de la charla: leo los datos, vos elegís qué aplicar. NO toca el Sheet">🪄 Traer info</button>
         <button class="btn-load-previo btn-ranking" onclick="abrirModalRanking()" title="Ranking de vendedores: quién viene cotizando y cerrando">🏆 Ranking comercial</button>
         <button class="btn-reset-top" onclick="resetAll()" title="Borra todos los datos y crea un presupuesto nuevo">↺ Empezar de cero</button>
       </div>
@@ -1422,6 +1479,63 @@ input,select,textarea{font-family:inherit;font-size:14px}
       <button type="button" class="lead-text-submit" onclick="llenarDesdeFicha()">Llenar datos del presupuesto</button>
     </div>
     <div class="pdf-status" id="ficha-status"></div>
+  </div>
+</div>
+
+<!-- MODAL: TRAER INFO — screenshot/texto de la charla → llena el presupuesto.
+     NO escribe en el Sheet ni en Calendar: solo propone, vos elegís qué aplicar. -->
+<div class="modal-backdrop" id="info-modal" data-backdrop-close="cerrarModalInfo">
+  <div class="modal-box" style="max-width:780px">
+    <button class="m-close-x" onclick="cerrarModalInfo()" aria-label="Cerrar">×</button>
+    <h3>Traer <em>info</em></h3>
+    <div class="m-sub">Pegá un screenshot de la charla (WhatsApp, mail) o el texto suelto. Leo lo que pueda y te lo muestro campo por campo: <strong>vos destildás lo que no va</strong> y recién ahí se llena el presupuesto.</div>
+
+    <div class="ti-tabs">
+      <button type="button" class="ti-tab active" data-ti-tab="image" onclick="switchInfoTab('image')">🖼 Screenshot</button>
+      <button type="button" class="ti-tab" data-ti-tab="text" onclick="switchInfoTab('text')">📝 Texto</button>
+    </div>
+
+    <div class="ti-panel active" data-ti-panel="image">
+      <div class="pdf-dropzone" id="ti-dropzone" onclick="document.getElementById('ti-file-input').click()">
+        <div class="pd-icon">🪄</div>
+        <div class="pd-title">Pegá con ⌘V, arrastrá o tocá para elegir</div>
+        <div class="pd-sub">JPG, PNG, WEBP · Máx 15 MB · Sirve un screenshot de WhatsApp, un mail o una foto de una nota</div>
+        <input type="file" id="ti-file-input" accept="image/*" onchange="handleInfoImage(event)">
+      </div>
+    </div>
+
+    <div class="ti-panel" data-ti-panel="text">
+      <textarea id="ti-text-input" rows="7" placeholder="Pegá la charla o escribí lo que sepas. Ej:&#10;&#10;Vamos a ir con pizzas para 40 personas, a las 19,30hs, estancias del pilar.&#10;Bebidas y postre no hacen falta.&#10;Recuerdo 69 es el lote."></textarea>
+      <button type="button" class="ti-text-submit" onclick="handleInfoText()">Leer el texto</button>
+    </div>
+
+    <div class="pdf-status" id="ti-status"></div>
+
+    <div class="ti-review" id="ti-review">
+      <div class="ti-nosheet">✅ Esto <strong>no toca el Sheet ni el Calendar</strong>. Solo llena el formulario del presupuesto — el lead se registra recién cuando exportás, como siempre.</div>
+
+      <div id="ti-faltantes"></div>
+
+      <div class="ti-sec">Datos del evento</div>
+      <div class="ti-hint">Tildado = se aplica. Podés editar el valor antes de llenar.</div>
+      <div class="ti-grid" id="ti-fields"></div>
+
+      <div id="ti-items-wrap">
+        <div class="ti-sec">Ítems que pidió</div>
+        <div class="ti-hint">Solo ítems del catálogo. La cantidad arranca en el pax; cambiala si va otra.</div>
+        <div class="ti-items" id="ti-items"></div>
+      </div>
+
+      <div id="ti-notas-wrap">
+        <div class="ti-sec">Notas de la charla</div>
+        <div class="ti-notas" id="ti-notas"></div>
+      </div>
+
+      <div class="pdf-actions">
+        <button class="pa-cancel" onclick="cerrarModalInfo()">Cancelar</button>
+        <button class="pa-confirm" onclick="aplicarInfoAlPresupuesto()">Llenar presupuesto</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -4124,6 +4238,279 @@ function llenarDesdeFicha() {
   refreshTotals();
   cerrarModalFicha();
   showSheetToast('📋 Datos cargados — armá el monto y al exportar se sincroniza en el Sheet');
+}
+
+// ==================================================================
+// TRAER INFO — screenshot / texto de la charla → datos del presupuesto.
+// Gemini propone, el comercial dispone: cada campo y cada ítem tiene su
+// checkbox y se aplica solo lo tildado. NO escribe en el Sheet ni en
+// Calendar (a diferencia de "Cargar lead", que sí registra la fila).
+// ==================================================================
+
+// Campos que sabemos volcar al formulario. `target` es el id del input real.
+const TI_CAMPOS = [
+  { k: 'contacto',      lab: 'Contacto',   target: 'f-name' },
+  { k: 'empresa',       lab: 'Empresa',    target: 'f-company' },
+  { k: 'telefono',      lab: 'Teléfono',   target: 'f-phone' },
+  { k: 'email',         lab: 'Email',      target: 'f-email' },
+  { k: 'nombreEvento',  lab: 'Nombre evento', target: 'f-event-name', full: true },
+  { k: 'fechaISO',      lab: 'Fecha',      target: 'f-event-date',  type: 'date' },
+  { k: 'pax',           lab: 'Personas',   target: 'f-pax',         type: 'number' },
+  { k: 'horarioInicio', lab: 'Inicio',     target: 'f-event-start', type: 'time' },
+  { k: 'horarioFin',    lab: 'Cierre',     target: 'f-event-end',   type: 'time' },
+  { k: 'locacion',      lab: 'Dirección',  target: 'f-address',     full: true },
+  { k: 'tipoEvento',    lab: 'Tipo evento', target: 'f-type',       full: true }
+];
+
+let _tiData = null;
+
+function abrirModalInfo() {
+  document.getElementById('info-modal').classList.add('open');
+  document.getElementById('ti-text-input').value = '';
+  document.getElementById('ti-file-input').value = '';
+  document.getElementById('ti-review').classList.remove('open');
+  setTiStatus('', '');
+  _tiData = null;
+  switchInfoTab('image');
+
+  const dz = document.getElementById('ti-dropzone');
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('dragover'); };
+  dz.ondragleave = () => dz.classList.remove('dragover');
+  dz.ondrop = (e) => {
+    e.preventDefault();
+    dz.classList.remove('dragover');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleInfoImage({ target: { files: e.dataTransfer.files } });
+    }
+  };
+
+  // ⌘V con una imagen en el portapapeles = el camino más rápido.
+  _tiPasteListener = (e) => {
+    if (!document.getElementById('info-modal').classList.contains('open')) return;
+    if (e.target && e.target.id === 'ti-text-input') return; // pegando texto, no interferir
+    const cbItems = (e.clipboardData || {}).items;
+    if (!cbItems) return;
+    for (const it of cbItems) {
+      if (it.kind === 'file' && it.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = it.getAsFile();
+        if (file) { switchInfoTab('image'); handleInfoImage({ target: { files: [file] } }); }
+        return;
+      }
+    }
+  };
+  document.addEventListener('paste', _tiPasteListener);
+}
+let _tiPasteListener = null;
+
+function cerrarModalInfo() {
+  document.getElementById('info-modal').classList.remove('open');
+  if (_tiPasteListener) { document.removeEventListener('paste', _tiPasteListener); _tiPasteListener = null; }
+}
+
+function switchInfoTab(tab) {
+  document.querySelectorAll('#info-modal .ti-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.tiTab === tab);
+  });
+  document.querySelectorAll('#info-modal .ti-panel').forEach(p => {
+    p.classList.toggle('active', p.dataset.tiPanel === tab);
+  });
+}
+
+function setTiStatus(msg, kind) {
+  const el = document.getElementById('ti-status');
+  el.textContent = msg || '';
+  el.className = 'pdf-status' + (kind ? ' ' + kind : '');
+}
+
+// Nombres del catálogo que le pasamos a Gemini: es la única lista de la que
+// puede elegir ítems, así no inventa productos que LF no vende.
+function catalogoNombres() {
+  return [...new Set(CATALOG.map(c => c.name).filter(Boolean))];
+}
+
+async function handleInfoImage(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { setTiStatus('Eso no parece una imagen. Probá con un JPG o PNG.', 'error'); return; }
+  if (file.size > 15 * 1024 * 1024) { setTiStatus('La imagen supera 15 MB. Sacá un screenshot más chico.', 'error'); return; }
+  setTiStatus(`Leyendo "${file.name}" (${(file.size / 1024).toFixed(0)} KB)…`, 'info');
+  try {
+    const base64 = await fileToBase64(file);
+    await pedirInfo({ imageBase64: base64, mimeType: file.type, filename: file.name });
+  } catch (err) {
+    console.error(err);
+    setTiStatus('No pude leer la imagen: ' + err.message, 'error');
+  }
+}
+
+async function handleInfoText() {
+  const content = (document.getElementById('ti-text-input').value || '').trim();
+  if (!content) { setTiStatus('Pegá o escribí algo antes de leer.', 'error'); return; }
+  await pedirInfo({ text: content, filename: 'charla.txt' });
+}
+
+async function pedirInfo(payloadBase) {
+  if (!APPS_SCRIPT_PDF_URL) { setTiStatus('Falta configurar la URL del Apps Script. Avisale a Camba.', 'error'); return; }
+  setTiStatus('Leyendo con Gemini… (5–12 seg)', 'info');
+  document.getElementById('ti-review').classList.remove('open');
+  try {
+    const res = await callPdfEndpoint({
+      ...payloadBase,
+      action: 'extraerParaPresupuesto',
+      catalogo: catalogoNombres(),
+      hoy: new Date().toISOString().slice(0, 10)
+    });
+    if (!res.ok) throw new Error(res.error || 'Error desconocido');
+    _tiData = res.data || {};
+    renderInfoReview(_tiData);
+    setTiStatus('Listo. Revisá abajo: destildá lo que no va y tocá «Llenar presupuesto».', 'ok');
+  } catch (err) {
+    console.error(err);
+    setTiStatus('No pude leer la info: ' + err.message, 'error');
+  }
+}
+
+function renderInfoReview(d) {
+  const esc = s => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  // --- Campos: tildados solo los que traen valor ---
+  document.getElementById('ti-fields').innerHTML = TI_CAMPOS.map(c => {
+    const val = (d[c.k] || '').trim();
+    const on = !!val;
+    const type = c.type || 'text';
+    return `<div class="ti-row ${on ? 'on' : 'off'} ${c.full ? 'full' : ''}" data-ti-field="${c.k}">
+      <input type="checkbox" ${on ? 'checked' : ''} onchange="tiToggleRow(this)">
+      <span class="ti-lab">${esc(c.lab)}</span>
+      <input class="ti-val" type="${type}" value="${esc(val)}" data-ti-target="${c.target}"
+             placeholder="${on ? '' : 'no lo encontré'}" oninput="tiRowEdited(this)">
+    </div>`;
+  }).join('');
+
+  // --- Ítems sugeridos del catálogo ---
+  const items = Array.isArray(d.items) ? d.items : [];
+  const pax = +(d.pax || document.getElementById('f-pax').value || 0);
+  const wrapItems = document.getElementById('ti-items-wrap');
+  if (!items.length) {
+    wrapItems.style.display = 'none';
+  } else {
+    wrapItems.style.display = 'block';
+    document.getElementById('ti-items').innerHTML = items.map((it, i) => {
+      const cat = CATALOG.find(c => c.name === it.nombre);
+      if (!cat) return '';
+      const porPersona = cat.unit === 'persona' && !String(cat.cat || '').startsWith('Logística');
+      const qty = it.cantidad ? +it.cantidad : (porPersona && pax ? pax : 1);
+      const precio = `$${Math.round(cat.price).toLocaleString('es-AR')} / ${esc(cat.unit)}`;
+      const motivo = it.motivo ? ` · «${esc(it.motivo)}»` : '';
+      return `<div class="ti-item on" data-ti-item="${i}">
+        <input type="checkbox" checked onchange="tiToggleItem(this)">
+        <div class="ti-item-body">
+          <div class="ti-item-name">${esc(cat.name)}</div>
+          <div class="ti-item-meta">${precio}${motivo}</div>
+        </div>
+        <input class="ti-item-qty" type="number" min="1" value="${qty}" title="Cantidad">
+      </div>`;
+    }).join('');
+  }
+
+  // --- Notas (nunca se aplican solas: son para que las leas) ---
+  const notas = Array.isArray(d.notas) ? d.notas : [];
+  const wrapNotas = document.getElementById('ti-notas-wrap');
+  if (!notas.length) {
+    wrapNotas.style.display = 'none';
+  } else {
+    wrapNotas.style.display = 'block';
+    document.getElementById('ti-notas').innerHTML =
+      '<ul>' + notas.map(n => `<li>${esc(n)}</li>`).join('') + '</ul>';
+  }
+
+  // --- Lo que no pudo sacar: el aviso más importante del panel ---
+  const faltantes = Array.isArray(d.faltantes) ? d.faltantes : [];
+  document.getElementById('ti-faltantes').innerHTML = faltantes.length
+    ? `<div class="ti-warn"><strong>Esto no estaba en la charla:</strong> ${esc(faltantes.join(' · '))}.
+       Cargalo a mano — preferí dejarlo vacío antes que inventarlo.</div>`
+    : '';
+
+  document.getElementById('ti-review').classList.add('open');
+}
+
+function tiToggleRow(cb) {
+  const row = cb.closest('.ti-row');
+  row.classList.toggle('on', cb.checked);
+  row.classList.toggle('off', !cb.checked);
+}
+// Si el comercial escribe en un campo que vino vacío, lo damos por aceptado.
+function tiRowEdited(input) {
+  const row = input.closest('.ti-row');
+  const cb = row.querySelector('input[type=checkbox]');
+  if (!cb.checked && (input.value || '').trim()) { cb.checked = true; tiToggleRow(cb); }
+}
+function tiToggleItem(cb) {
+  const box = cb.closest('.ti-item');
+  box.classList.toggle('on', cb.checked);
+  box.classList.toggle('off', !cb.checked);
+}
+
+function aplicarInfoAlPresupuesto() {
+  const rows = [...document.querySelectorAll('#ti-fields .ti-row')];
+  const aplicar = rows
+    .filter(r => r.querySelector('input[type=checkbox]').checked)
+    .map(r => {
+      const inp = r.querySelector('.ti-val');
+      return { target: inp.dataset.tiTarget, value: (inp.value || '').trim() };
+    })
+    .filter(x => x.value);
+
+  const itemsSel = [...document.querySelectorAll('#ti-items .ti-item')]
+    .filter(b => b.querySelector('input[type=checkbox]').checked)
+    .map(b => {
+      const idx = +b.dataset.tiItem;
+      const nombre = (_tiData.items[idx] || {}).nombre;
+      return { cat: CATALOG.find(c => c.name === nombre), qty: +b.querySelector('.ti-item-qty').value || 1 };
+    })
+    .filter(x => x.cat);
+
+  if (!aplicar.length && !itemsSel.length) {
+    setTiStatus('No tildaste nada para aplicar.', 'error');
+    return;
+  }
+
+  // Mismo recaudo que la ficha del Agendador: no pisar trabajo en curso sin avisar.
+  const pisaCampos = aplicar.some(a => (document.getElementById(a.target) || {}).value);
+  if (pisaCampos && !confirm('Ya hay datos cargados en el presupuesto. ¿Los reemplazo con estos?')) return;
+
+  aplicar.forEach(a => {
+    const el = document.getElementById(a.target);
+    if (!el) return;
+    // El tipo de evento es un <select>: solo lo seteamos si la opción existe.
+    if (el.tagName === 'SELECT') {
+      const ok = [...el.options].some(o => o.value === a.value || o.text === a.value);
+      if (!ok) return;
+    }
+    el.value = a.value;
+  });
+
+  const paxActual = +(document.getElementById('f-pax').value || 0);
+  itemsSel.forEach(({ cat, qty }) => {
+    const porPersona = cat.unit === 'persona' && !String(cat.cat || '').startsWith('Logística');
+    addItem({
+      name: cat.name, price: cat.price, unit: cat.unit, desc: cat.desc, cat: cat.cat,
+      qty: qty,
+      // qtyAuto: la cantidad sigue al pax solo si salió del pax.
+      qtyAuto: porPersona && qty === paxActual,
+      discPct: 0
+    });
+  });
+
+  // Este lead NO está en el Sheet (vino de una charla suelta), así que dejamos
+  // el flujo normal: al exportar se crea la fila como siempre.
+  if (typeof dias !== 'undefined' && dias.length) syncActiveDiaFromLive();
+  renderDoc();
+  refreshTotals();
+  cerrarModalInfo();
+  const n = aplicar.length + itemsSel.length;
+  showSheetToast(`🪄 ${n} dato${n === 1 ? '' : 's'} cargado${n === 1 ? '' : 's'} — revisá y armá el presupuesto`);
 }
 
 // Busca la fila del lead en el Sheet por cliente + fecha (fallback cuando la

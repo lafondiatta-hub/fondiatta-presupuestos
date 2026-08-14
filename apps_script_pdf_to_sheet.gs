@@ -99,6 +99,19 @@ function doPost(e) {
       return jsonResponse(updateCalendarUrlForPresupuesto(body.presupuestoId, body.calendarEventUrl));
     }
 
+    // Acción: "Traer info" del cotizador. Lee un screenshot / texto de una
+    // charla con el cliente y devuelve los datos para LLENAR EL PRESUPUESTO.
+    // NO escribe nada: ni Sheet ni Calendar. El comercial decide después,
+    // campo por campo, qué aplica. Distinto de la extracción de leads (abajo),
+    // que devuelve las 22 columnas del Sheet y termina en una fila nueva.
+    if (body.action === 'extraerParaPresupuesto') {
+      const inputCot = resolveInput(body);
+      return jsonResponse({
+        ok: true,
+        data: extraerParaPresupuesto_(inputCot, body.catalogo, body.hoy)
+      });
+    }
+
     // Caso 1: registro confirmado con datos editados por el usuario
     //         (no se vuelve a llamar a Gemini, se escribe directo)
     if (body.confirmedData && !body.dryRun) {
@@ -410,6 +423,214 @@ function buildPrompt(kind) {
     'Si algún dato NO está presente, devolvé string vacío "" para ese campo. NO inventes datos.',
     'Si el input es informal (ej: "30 pax / Jorge Lanza / propuesta general / 26 de junio"), igual extraé lo que puedas: nombre del contacto, pax, tipo de evento, fecha, etc. Lo que no esté → "".',
     'Devolvé SOLO el JSON, sin markdown, sin texto adicional.'
+  ].join('\n');
+}
+
+// ==================================================================
+// TRAER INFO — screenshot/texto de una charla → datos del presupuesto
+// ==================================================================
+// Devuelve los campos del formulario del cotizador (no las columnas del
+// Sheet) + ítems sugeridos del catálogo + notas + qué le faltó. No escribe
+// nada en ningún lado: el comercial revisa y decide en el frontend.
+//
+// El catálogo viaja desde el frontend (es la fuente de verdad de precios y
+// cambia seguido); así el script no necesita saber qué vende LF.
+
+// Tipos de evento del <select> del cotizador. Si Gemini devuelve otra cosa,
+// el frontend lo ignora y deja el campo vacío.
+const TIPOS_EVENTO_COTIZADOR = [
+  'Desayuno Corporativo', 'Almuerzo Corporativo', 'Merienda Corporativa',
+  'After Corporativo', 'Cena Corporativa', 'Desayuno + Almuerzo Corporativo',
+  'Evento Corporativo', 'Casamiento', 'Civil', 'Cumpleaños', 'Evento Social',
+  'Catering', 'Propuesta General', 'Entrega Corporativa', 'Entrega Particular',
+  'Merchandising'
+];
+
+const CAMPOS_COTIZADOR = [
+  'contacto', 'telefono', 'email', 'empresa', 'nombreEvento', 'fechaISO',
+  'pax', 'horarioInicio', 'horarioFin', 'locacion', 'tipoEvento'
+];
+
+function extraerParaPresupuesto_(input, catalogo, hoy) {
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) throw new Error('Falta GEMINI_API_KEY en Script Properties');
+
+  const nombresCatalogo = (Array.isArray(catalogo) ? catalogo : [])
+    .map(s => String(s || '').trim()).filter(Boolean).slice(0, 500);
+  const hoyISO = /^\d{4}-\d{2}-\d{2}$/.test(String(hoy || ''))
+    ? hoy
+    : Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'yyyy-MM-dd');
+
+  const firstPart = input.kind === 'text'
+    ? { text: 'Conversación / nota con el cliente (texto pegado):\n\n' + input.content }
+    : { inline_data: { mime_type: input.mimeType, data: input.base64 } };
+
+  const payload = {
+    contents: [{ parts: [firstPart, { text: promptCotizador_(input.kind, nombresCatalogo, hoyISO) }] }],
+    generationConfig: {
+      temperature: 0.1,
+      response_mime_type: 'application/json',
+      response_schema: schemaCotizador_()
+    }
+  };
+
+  const res = callGeminiWithRetry_(apiKey, payload);
+  const json = JSON.parse(res.getContentText());
+  const text = json.candidates && json.candidates[0] && json.candidates[0].content
+    && json.candidates[0].content.parts && json.candidates[0].content.parts[0]
+    && json.candidates[0].content.parts[0].text;
+  if (!text) throw new Error('Gemini no devolvió texto');
+
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch (err) { throw new Error(`Respuesta Gemini no es JSON válido: ${text.slice(0, 300)}`); }
+
+  const out = {};
+  CAMPOS_COTIZADOR.forEach(k => { out[k] = (parsed[k] != null ? String(parsed[k]) : '').trim(); });
+
+  // --- Guardias anti-alucinación (el schema obliga a Gemini a mandar algo
+  //     en cada campo, así que acá limpiamos lo que no tenga forma válida) ---
+
+  // Fecha: solo yyyy-mm-dd real. Cualquier otra cosa se descarta y pasa a faltantes.
+  if (out.fechaISO && !/^\d{4}-\d{2}-\d{2}$/.test(out.fechaISO)) out.fechaISO = '';
+  if (out.fechaISO && isNaN(new Date(out.fechaISO + 'T12:00:00').getTime())) out.fechaISO = '';
+
+  out.horarioInicio = normHoraLF_(out.horarioInicio);
+  out.horarioFin = normHoraLF_(out.horarioFin);
+
+  // Pax: solo dígitos.
+  const paxM = out.pax.match(/\d+/);
+  out.pax = paxM ? paxM[0] : '';
+
+  // Tipo de evento: tiene que existir en el <select> del cotizador.
+  if (out.tipoEvento && TIPOS_EVENTO_COTIZADOR.indexOf(out.tipoEvento) < 0) out.tipoEvento = '';
+
+  // Ítems: solo nombres EXACTOS del catálogo que mandó el frontend. Si Gemini
+  // se inventa uno, lo tiramos a notas en vez de meterlo al presupuesto.
+  const permitidos = {};
+  nombresCatalogo.forEach(n => { permitidos[n.toLowerCase()] = n; });
+  const items = [];
+  const inventados = [];
+  (Array.isArray(parsed.items) ? parsed.items : []).forEach(it => {
+    const nombre = String((it && it.nombre) || '').trim();
+    if (!nombre) return;
+    const real = permitidos[nombre.toLowerCase()];
+    if (!real) { inventados.push(nombre); return; }
+    if (items.some(x => x.nombre === real)) return; // sin duplicados
+    const cantM = String((it && it.cantidad) || '').match(/\d+/);
+    items.push({
+      nombre: real,
+      cantidad: cantM ? cantM[0] : '',
+      motivo: String((it && it.motivo) || '').trim().slice(0, 160)
+    });
+  });
+
+  const notas = (Array.isArray(parsed.notas) ? parsed.notas : [])
+    .map(s => String(s || '').trim()).filter(Boolean).slice(0, 15);
+  inventados.forEach(n => notas.push(`Pidió "${n}" — no está en el catálogo, cargalo a mano`));
+
+  out.items = items;
+  out.notas = notas;
+  out.faltantes = (Array.isArray(parsed.faltantes) ? parsed.faltantes : [])
+    .map(s => String(s || '').trim()).filter(Boolean).slice(0, 10);
+  if (!out.fechaISO && out.faltantes.every(f => !/fecha/i.test(f))) {
+    out.faltantes.unshift('Fecha del evento');
+  }
+  out.INTERNAL_SOURCE = input.kind;
+  return out;
+}
+
+// "19,30hs" / "19.30" / "7:30 pm" / "19 30" → "19:30". Vacío si no hay hora.
+function normHoraLF_(raw) {
+  let s = String(raw || '').trim().toLowerCase();
+  if (!s) return '';
+  const pm = /\bpm\b|p\.m\./.test(s);
+  const am = /\bam\b|a\.m\./.test(s);
+  const m = s.match(/(\d{1,2})\s*[:.,h]?\s*(\d{2})?/);
+  if (!m) return '';
+  let h = parseInt(m[1], 10);
+  const min = m[2] ? parseInt(m[2], 10) : 0;
+  if (isNaN(h) || h > 23 || min > 59) return '';
+  if (pm && h < 12) h += 12;
+  if (am && h === 12) h = 0;
+  return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+}
+
+function schemaCotizador_() {
+  const properties = {};
+  CAMPOS_COTIZADOR.forEach(k => { properties[k] = { type: 'string' }; });
+  properties.items = {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        nombre: { type: 'string' },
+        cantidad: { type: 'string' },
+        motivo: { type: 'string' }
+      },
+      required: ['nombre']
+    }
+  };
+  properties.notas = { type: 'array', items: { type: 'string' } };
+  properties.faltantes = { type: 'array', items: { type: 'string' } };
+  return { type: 'object', properties: properties, required: CAMPOS_COTIZADOR };
+}
+
+function promptCotizador_(kind, nombresCatalogo, hoyISO) {
+  const fuente = kind === 'text'
+    ? 'el texto pegado (charla de WhatsApp, mail, o notas sueltas del comercial)'
+    : kind === 'image'
+      ? 'la imagen adjunta (screenshot de WhatsApp, mail, o foto de una nota)'
+      : 'el PDF adjunto';
+  return [
+    'Sos el asistente del cotizador de La Fondiatta, un catering argentino.',
+    `Analizá ${fuente} y devolvé UN objeto JSON con los datos del EVENTO que se está por cotizar.`,
+    `Hoy es ${hoyISO} (formato yyyy-mm-dd).`,
+    '',
+    'REGLA MADRE: no inventes NADA. Si un dato no está dicho, devolvé "" y sumalo a "faltantes".',
+    'Es mucho mejor devolver un campo vacío que uno inventado: el comercial lo completa en 2 segundos,',
+    'pero un dato mal puesto se le cuela al presupuesto y llega al cliente.',
+    '',
+    'CAMPOS:',
+    '- contacto: nombre de la persona con la que se habla. En un screenshot de WhatsApp suele estar arriba,',
+    '  en el encabezado del chat (puede venir con apodos o agregados tipo "Agus M Estancias" → "Agus M").',
+    '  Si dentro de la charla se dice un nombre más completo o distinto, ese gana.',
+    '- telefono: solo si aparece escrito. NO lo deduzcas del nombre del chat.',
+    '- email: solo si aparece escrito.',
+    '- empresa: la empresa que contrata. Si es un particular (no hay empresa), devolvé "Particular".',
+    '- nombreEvento: cómo llamarle al evento, corto (ej "Cumple Agus", "Almuerzo Danone"). Si no hay pistas, "".',
+    '- fechaISO: fecha del EVENTO en formato yyyy-mm-dd. LEER CON CUIDADO:',
+    '  * Solo si la fecha del evento está dicha explícitamente.',
+    '  * Fechas de PAGOS, señas, cobros o mensajes NO son la fecha del evento.',
+    '    Ej: "el 25 cobro y te transfiero la seña" → eso es un pago → fechaISO "" y "Fecha del evento" en faltantes.',
+    '  * Tampoco uses la fecha en la que se mandó el mensaje (el "Hoy" del chat) como fecha del evento.',
+    `  * Si dice día y mes sin año, elegí el año que hace que la fecha sea la próxima futura respecto de ${hoyISO}.`,
+    '- pax: cantidad de personas, solo el número.',
+    '- horarioInicio / horarioFin: formato HH:MM 24hs. "19,30hs" → "19:30", "8 de la noche" → "20:00".',
+    '  horarioFin solo si está dicho; si solo hay una hora, es horarioInicio.',
+    '- locacion: dirección o lugar del evento, lo más completo posible. Juntá los pedazos que estén repartidos',
+    '  en la charla (ej "estancias del pilar" + "69 es el lote" → "Estancias del Pilar, lote 69").',
+    '- tipoEvento: EXACTAMENTE uno de esta lista, o "" si no está claro:',
+    '  ' + JSON.stringify(TIPOS_EVENTO_COTIZADOR),
+    '',
+    'ITEMS (lo que el cliente pidió):',
+    '- Devolvé un array "items" con lo que el cliente pidió de comer/tomar.',
+    '- El campo "nombre" tiene que ser un nombre EXACTO, copiado carácter por carácter, de este catálogo:',
+    JSON.stringify(nombresCatalogo),
+    '- Si el cliente pide algo que NO está en el catálogo, NO lo pongas en items: mandalo a "notas".',
+    '- "cantidad": solo si el cliente dijo una cantidad puntual para ESE ítem; si no, "".',
+    '- "motivo": la frase textual del cliente que te hizo elegir ese ítem (ej "vamos a ir con pizzas para 40 personas").',
+    '- NEGACIONES: si el cliente dice que NO quiere algo ("sin bebidas", "postre no hace falta",',
+    '  "bebidas y postre no hacen falta"), eso NUNCA es un ítem. Va a "notas" empezando con "SIN ".',
+    '',
+    'NOTAS: array de frases cortas con todo lo que importa pero no entra en un campo:',
+    'condiciones de pago, señas, fechas de cobro, pendientes, gustos, restricciones, lo que el cliente NO quiere.',
+    'Ej: "Seña: cobra el 25 y transfiere", "SIN bebidas ni postre", "Pidió el presupuesto con logística".',
+    '',
+    'FALTANTES: array con los nombres de los datos importantes que NO pudiste sacar',
+    '(ej "Fecha del evento", "Teléfono", "Email"). Es lo que el comercial tiene que completar a mano.',
+    '',
+    'Devolvé SOLO el JSON, sin markdown ni texto alrededor.'
   ].join('\n');
 }
 

@@ -1491,16 +1491,16 @@ input,select,textarea{font-family:inherit;font-size:14px}
     <div class="m-sub">Pegá un screenshot de la charla (WhatsApp, mail) o el texto suelto. Leo lo que pueda y te lo muestro campo por campo: <strong>vos destildás lo que no va</strong> y recién ahí se llena el presupuesto.</div>
 
     <div class="ti-tabs">
-      <button type="button" class="ti-tab active" data-ti-tab="image" onclick="switchInfoTab('image')">🖼 Screenshot</button>
+      <button type="button" class="ti-tab active" data-ti-tab="file" onclick="switchInfoTab('file')">📎 Screenshot o PDF</button>
       <button type="button" class="ti-tab" data-ti-tab="text" onclick="switchInfoTab('text')">📝 Texto</button>
     </div>
 
-    <div class="ti-panel active" data-ti-panel="image">
+    <div class="ti-panel active" data-ti-panel="file">
       <div class="pdf-dropzone" id="ti-dropzone" onclick="document.getElementById('ti-file-input').click()">
         <div class="pd-icon">🪄</div>
         <div class="pd-title">Pegá con ⌘V, arrastrá o tocá para elegir</div>
-        <div class="pd-sub">JPG, PNG, WEBP · Máx 15 MB · Sirve un screenshot de WhatsApp, un mail o una foto de una nota</div>
-        <input type="file" id="ti-file-input" accept="image/*" onchange="handleInfoImage(event)">
+        <div class="pd-sub">Screenshot de WhatsApp o mail (JPG, PNG, WEBP · máx 15 MB)<br>o un PDF: brief, pedido formal, lista de invitados (máx 20 MB)</div>
+        <input type="file" id="ti-file-input" accept="image/*,application/pdf,.pdf" onchange="handleInfoFile(event)">
       </div>
     </div>
 
@@ -4271,7 +4271,7 @@ function abrirModalInfo() {
   document.getElementById('ti-review').classList.remove('open');
   setTiStatus('', '');
   _tiData = null;
-  switchInfoTab('image');
+  switchInfoTab('file');
 
   const dz = document.getElementById('ti-dropzone');
   dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('dragover'); };
@@ -4280,7 +4280,7 @@ function abrirModalInfo() {
     e.preventDefault();
     dz.classList.remove('dragover');
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleInfoImage({ target: { files: e.dataTransfer.files } });
+      handleInfoFile({ target: { files: e.dataTransfer.files } });
     }
   };
 
@@ -4291,10 +4291,10 @@ function abrirModalInfo() {
     const cbItems = (e.clipboardData || {}).items;
     if (!cbItems) return;
     for (const it of cbItems) {
-      if (it.kind === 'file' && it.type.startsWith('image/')) {
+      if (it.kind === 'file' && (it.type.startsWith('image/') || it.type === 'application/pdf')) {
         e.preventDefault();
         const file = it.getAsFile();
-        if (file) { switchInfoTab('image'); handleInfoImage({ target: { files: [file] } }); }
+        if (file) { switchInfoTab('file'); handleInfoFile({ target: { files: [file] } }); }
         return;
       }
     }
@@ -4329,18 +4329,31 @@ function catalogoNombres() {
   return [...new Set(CATALOG.map(c => c.name).filter(Boolean))];
 }
 
-async function handleInfoImage(e) {
+// Un solo dropzone para imagen y PDF: ramificamos por el tipo del archivo
+// así nadie tiene que acertarle a la pestaña correcta.
+async function handleInfoFile(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  if (!file.type.startsWith('image/')) { setTiStatus('Eso no parece una imagen. Probá con un JPG o PNG.', 'error'); return; }
-  if (file.size > 15 * 1024 * 1024) { setTiStatus('La imagen supera 15 MB. Sacá un screenshot más chico.', 'error'); return; }
+  const esPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const esImagen = (file.type || '').startsWith('image/');
+  if (!esPdf && !esImagen) {
+    setTiStatus('Eso no es una imagen ni un PDF. Probá con un JPG, PNG o PDF.', 'error');
+    return;
+  }
+  const maxMb = esPdf ? 20 : 15;
+  if (file.size > maxMb * 1024 * 1024) {
+    setTiStatus(`El archivo supera ${maxMb} MB. ${esPdf ? 'Subilo en partes' : 'Sacá un screenshot más chico'}.`, 'error');
+    return;
+  }
   setTiStatus(`Leyendo "${file.name}" (${(file.size / 1024).toFixed(0)} KB)…`, 'info');
   try {
     const base64 = await fileToBase64(file);
-    await pedirInfo({ imageBase64: base64, mimeType: file.type, filename: file.name });
+    await pedirInfo(esPdf
+      ? { pdfBase64: base64, filename: file.name }
+      : { imageBase64: base64, mimeType: file.type, filename: file.name });
   } catch (err) {
     console.error(err);
-    setTiStatus('No pude leer la imagen: ' + err.message, 'error');
+    setTiStatus(`No pude leer ${esPdf ? 'el PDF' : 'la imagen'}: ` + err.message, 'error');
   }
 }
 

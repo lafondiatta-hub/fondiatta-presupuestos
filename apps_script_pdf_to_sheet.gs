@@ -581,7 +581,7 @@ function promptCotizador_(kind, nombresCatalogo, hoyISO) {
     ? 'el texto pegado (charla de WhatsApp, mail, o notas sueltas del comercial)'
     : kind === 'image'
       ? 'la imagen adjunta (screenshot de WhatsApp, mail, o foto de una nota)'
-      : 'el PDF adjunto';
+      : 'el PDF adjunto (un brief, un pedido formal, una lista, o una propuesta que mandó el cliente)';
   return [
     'Sos el asistente del cotizador de La Fondiatta, un catering argentino.',
     `Analizá ${fuente} y devolvé UN objeto JSON con los datos del EVENTO que se está por cotizar.`,

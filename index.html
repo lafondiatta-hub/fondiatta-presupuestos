@@ -5549,8 +5549,14 @@ function abrirAgendadorConfirmado(scope) {
     menuDetalle = dias.map((d, idx) => {
       const fc = d.fecha ? ` ${fechaCortaTab(d.fecha)}` : '';
       const its = (d.items || [])
+        // Doble filtro: por tipoServicio y por categoría. El de tipoServicio solo
+        // no alcanzaba — items de logística/viáticos se colaban a la ficha.
         .filter(i => i.tipoServicio !== 'Logística' && i.tipoServicio !== 'Servicio')
-        .map(i => `${i.qty}x ${i.name}${i.desc ? ` (${i.desc})` : ''}`).join(' · ');
+        .filter(i => !/^\s*(log[ií]stica|vi[áa]ticos?|servicios?)/i.test(i.cat || ''))
+        // Solo cantidad + nombre. La `desc` del catálogo es copy comercial para
+        // el PDF: en la ficha de Calendar sólo alarga la lectura (Santi, ago-2026).
+        // Si hay algo que aclarar, lo escribe el vendedor en el detalle del preview.
+        .map(i => `${i.qty}x ${i.name}`).join(' · ');
       return `DÍA ${idx + 1}${fc}: ${its}`;
     }).join('  ||  ');
     const fechasInd = dias.map(d => d.fecha).filter(Boolean);
